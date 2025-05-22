@@ -32,5 +32,25 @@ class TestIndicators(unittest.TestCase):
         df = nicegold.generate_entry_signal(df)
         self.assertIn('entry_signal', df.columns)
 
+    @unittest.skipUnless(pandas_available and numpy_available, 'requires pandas and numpy')
+    def test_trend_confirm_column(self):
+        df = pd.DataFrame({'close': [1, 2, 3]})
+        df = nicegold.calculate_trend_confirm(df.copy())
+        self.assertIn('trend_confirm', df.columns)
+
+    @unittest.skipUnless(pandas_available and numpy_available, 'requires pandas and numpy')
+    def test_wave_phase_column(self):
+        df = pd.DataFrame({
+            'close': [1, 2, 3],
+            'high': [1, 2, 3],
+            'low': [1, 2, 3],
+            'RSI': [60, 60, 60],
+            'Pattern_Label': ['Breakout', 'Breakout', 'Breakout'],
+        })
+        df = nicegold.calculate_macd(df.copy())
+        df = nicegold.detect_macd_divergence(df)
+        df = nicegold.label_wave_phase(df)
+        self.assertIn('Wave_Phase', df.columns)
+
 if __name__ == '__main__':
     unittest.main()

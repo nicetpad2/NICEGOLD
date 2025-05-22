@@ -31,3 +31,10 @@
 - Re-entry logic and recovery lot adjustment
 - Partial take profit with two targets
 - Walk-forward fold parameters
+
+## [v1.3.0] — 2025-05-26
+### Added
+- Trend confirmation with EMA10 vs EMA35
+- Wave phase labeling system
+- Elliott-DivMeta Hybrid signal
+- TP1 at 0.8R with break-even stop
