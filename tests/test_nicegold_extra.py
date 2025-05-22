@@ -86,5 +86,20 @@ class TestNicegoldExtra(unittest.TestCase):
         }
         self.assertFalse(nicegold.should_force_entry(row, now - timedelta(minutes=500), now))
 
+    @unittest.skipUnless(pandas_available and numpy_available, 'requires pandas and numpy')
+    def test_apply_wave_macd_cross_entry(self):
+        df = pd.DataFrame({
+            'entry_signal': [None]*5,
+            'Wave_Phase': ['W.1', 'W.2', 'W.B', 'W.5', 'W.2'],
+            'divergence': ['bullish', 'bullish', 'bullish', 'bearish', 'bullish'],
+            'macd_cross_up': [False, True, True, False, True],
+            'macd_cross_down': [False, False, False, True, False],
+            'RSI': [50, 50, 50, 50, 50],
+            'close': [1, 1, 1, 1, 1],
+            'ema35': [1, 1, 1, 1, 1]
+        })
+        result = nicegold.apply_wave_macd_cross_entry(df.copy())
+        self.assertEqual(result['entry_signal'].tolist()[2:], ['buy', 'sell', 'buy'])
+
 if __name__ == '__main__':  # pragma: no cover
     unittest.main()
