@@ -7,6 +7,7 @@ numpy_available = importlib.util.find_spec('numpy') is not None
 if pandas_available and numpy_available:
     import pandas as pd
     import numpy as np
+    import io
     import sys, os
     sys.path.append(os.path.dirname(os.path.dirname(__file__)))
     import nicegold
@@ -100,6 +101,16 @@ class TestNicegoldExtra(unittest.TestCase):
         })
         result = nicegold.apply_wave_macd_cross_entry(df.copy())
         self.assertEqual(result['entry_signal'].tolist()[2:], ['buy', 'sell', 'buy'])
+
+    @unittest.skipUnless(pandas_available and numpy_available, 'requires pandas and numpy')
+    def test_load_data_timestamp_parsing(self):
+        csv_data = """Date,Timestamp,Open,High,Low,Close,Volume
+25630501,0:00:00,1,1,1,1,0
+25630501,0:15:00,1,1,1,1,0
+"""
+        df = nicegold.load_data(io.StringIO(csv_data))
+        self.assertEqual(df['timestamp'].iloc[0], pd.Timestamp('2020-05-01 00:00:00'))
+        self.assertEqual(df['timestamp'].iloc[1], pd.Timestamp('2020-05-01 00:15:00'))
 
 if __name__ == '__main__':  # pragma: no cover
     unittest.main()

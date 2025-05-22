@@ -59,3 +59,7 @@
 ## [v1.7.0] — 2025-05-30
 ### Added
 - Patch G34: Wave phase divergence logic with pd.isna fix, spike_score calculation, and force entry cooldown tweak
+
+## [v1.8.0] — 2025-05-31
+### Added
+- Patch G35: `load_data` now parses Buddhist `Date` and non zero-padded `Timestamp`

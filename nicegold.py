@@ -1,6 +1,29 @@
 import pandas as pd
 import numpy as np
 
+# === โหลดข้อมูล ===
+def load_data(file_path):
+    """อ่านไฟล์ CSV ที่มีคอลัมน์ Date (พ.ศ.) และ Timestamp แล้วแปลงเป็น datetime"""
+    df = pd.read_csv(file_path)
+    df.columns = [c.lower() for c in df.columns]
+    if 'date' not in df.columns or 'timestamp' not in df.columns:
+        return df
+
+    year = df['date'].astype(str).str.slice(0, 4).astype(int) - 543
+    month = df['date'].astype(str).str.slice(4, 6).astype(int)
+    day = df['date'].astype(str).str.slice(6, 8).astype(int)
+
+    datetime_str = (
+        year.astype(str)
+        + '-' + month.astype(str).str.zfill(2)
+        + '-' + day.astype(str).str.zfill(2)
+        + ' '
+        + df['timestamp'].astype(str)
+    )
+    df['timestamp'] = pd.to_datetime(datetime_str, format='%Y-%m-%d %H:%M:%S')
+    df = df.drop(columns=['date'])
+    return df
+
 # === คำนวณ Indicator ===
 def calculate_macd(df, price_col='close', fast=12, slow=26, signal=9):
     ema_fast = df[price_col].ewm(span=fast, adjust=False).mean()
