@@ -23,3 +23,11 @@
 - Reduced cooldown bars to 1 and adjusted entry logic
 - Added overlot and commission limits
 - Improved BE-SL and trailing stop handling
+
+## [v1.2.0] — 2025-05-25
+### Added
+- Entry signal scoring system with RSI and Gain Z
+- Forced entry strategy with spike filter
+- Re-entry logic and recovery lot adjustment
+- Partial take profit with two targets
+- Walk-forward fold parameters
