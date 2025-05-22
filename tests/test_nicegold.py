@@ -31,6 +31,7 @@ class TestIndicators(unittest.TestCase):
         df = nicegold.validate_divergence(df)
         df = nicegold.generate_entry_signal(df)
         self.assertIn('entry_signal', df.columns)
+        self.assertIn('spike_score', df.columns)
 
     @unittest.skipUnless(pandas_available and numpy_available, 'requires pandas and numpy')
     def test_trend_confirm_column(self):

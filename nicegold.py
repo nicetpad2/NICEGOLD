@@ -41,6 +41,7 @@ def calculate_spike_guard(df, window=20):
     df['hl_range'] = df['high'] - df['low']
     df['volatility'] = df['hl_range'].rolling(window=window).std()
     df['spike'] = df['hl_range'] > df['volatility'] * 3
+    df['spike_score'] = df['hl_range'] / (df['volatility'] * 3)
     return df
 
 def calculate_trend_confirm(df, price_col='close'):
@@ -111,6 +112,7 @@ def generate_entry_signal(df, gain_z_thresh=0.3, rsi_thresh=50):
     df['Signal_Score'] += np.where((rsi > rsi_thresh) & (gain_z > 0), 1, 0)
     df['Signal_Score'] -= np.where((rsi < rsi_thresh) & (gain_z < 0), 1, 0)
     df['Signal_Score'] += np.where(pattern.isin(['Breakout', 'StrongTrend']), 1, 0)
+    df['Signal_Score'] += np.where(pattern == 'Reversal', 1, 0)
 
     df['entry_signal'] = np.where(
         df['Signal_Score'] >= 2, 'buy',
@@ -180,7 +182,31 @@ def generate_entry_score_signal(df, ema_col="ema35", rsi_threshold=50):
     df.loc[sell_cond, "entry_signal"] = "sell"
     return df
 
-def should_force_entry(row, last_entry_time, current_time, cooldown=240):
+def apply_wave_macd_cross_entry(df, ema_col="ema35"):
+    df = df.copy()
+    for i in range(2, len(df)):
+        if df.at[df.index[i], 'entry_signal'] is None:
+            if (
+                df.at[df.index[i], 'Wave_Phase'] in ['W.2', 'W.3', 'W.5', 'W.B'] and
+                df.at[df.index[i], 'divergence'] == 'bullish' and
+                df.at[df.index[i], 'macd_cross_up'] and
+                df.at[df.index[i], 'RSI'] > 45 and
+                df.at[df.index[i], 'close'] >= df.at[df.index[i], ema_col] * 0.995 and
+                df.at[df.index[i], 'close'] <= df.at[df.index[i], ema_col] * 1.005
+            ):
+                df.at[df.index[i], 'entry_signal'] = 'buy'
+            elif (
+                df.at[df.index[i], 'Wave_Phase'] in ['W.2', 'W.3', 'W.5', 'W.B'] and
+                df.at[df.index[i], 'divergence'] == 'bearish' and
+                df.at[df.index[i], 'macd_cross_down'] and
+                df.at[df.index[i], 'RSI'] < 55 and
+                df.at[df.index[i], 'close'] >= df.at[df.index[i], ema_col] * 0.995 and
+                df.at[df.index[i], 'close'] <= df.at[df.index[i], ema_col] * 1.005
+            ):
+                df.at[df.index[i], 'entry_signal'] = 'sell'
+    return df
+
+def should_force_entry(row, last_entry_time, current_time, cooldown=180):
     if row['entry_signal'] is not None:
         return False
     if (current_time - last_entry_time).total_seconds() / 60 < cooldown:
@@ -222,11 +248,12 @@ def run_backtest_cli():  # pragma: no cover
         0: {'gain_z_thresh': 0.3, 'rsi_thresh': 50},
         1: {'gain_z_thresh': 0.25, 'rsi_thresh': 48},
     }
-    current_fold = 0
+    current_fold = 1
     param = fold_param.get(current_fold, {})
     gain_z_th = param.get('gain_z_thresh', 0.3)
     rsi_th = param.get('rsi_thresh', 50)
     df = generate_entry_signal(df, gain_z_thresh=gain_z_th, rsi_thresh=rsi_th)
+    df = apply_wave_macd_cross_entry(df)
 
 # === Backtest สมจริง: ถือไม้เดียว, TP:SL = 2:1 ===
     initial_capital = 100.0

@@ -51,3 +51,7 @@
 ## [v1.5.0] — 2025-05-28
 ### Added
 - Unit tests for full coverage (100%)
+
+## [v1.6.0] — 2025-05-29
+### Added
+- Patch G33: Fold #1 parameter optimization, MACD cross divergence entry, spike score for force entry, and reversal scoring
