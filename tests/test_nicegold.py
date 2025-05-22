@@ -87,5 +87,5 @@ class TestIndicators(unittest.TestCase):
         self.assertIn('entry_score', df.columns)
         self.assertIn('entry_signal', df.columns)
 
-if __name__ == '__main__':
+if __name__ == '__main__':  # pragma: no cover
     unittest.main()

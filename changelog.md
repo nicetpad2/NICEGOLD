@@ -47,3 +47,7 @@
 ## [v1.4.0] — 2025-05-28
 ### Added
 - Entry Score Based System (`generate_entry_score_signal`)
+
+## [v1.5.0] — 2025-05-28
+### Added
+- Unit tests for full coverage (100%)
