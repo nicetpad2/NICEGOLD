@@ -16,3 +16,10 @@
 - Cooldown and walk-forward fold simulation
 - Trailing stop and break-even logic
 - Kill switch on capital below $50
+
+## [v1.1.1] — 2025-05-24
+### Changed
+- Expanded EMA touch range to ±0.3%
+- Reduced cooldown bars to 1 and adjusted entry logic
+- Added overlot and commission limits
+- Improved BE-SL and trailing stop handling

@@ -34,7 +34,7 @@ def macd_cross_signal(df):
 def apply_ema_trigger(df, price_col='close'):
     df['ema35'] = df[price_col].ewm(span=35, adjust=False).mean()
     df['ema_touch'] = np.where(
-        (df[price_col] <= df['ema35'] * 1.002) & (df[price_col] >= df['ema35'] * 0.998), True, False)
+        (df[price_col] <= df['ema35'] * 1.003) & (df[price_col] >= df['ema35'] * 0.997), True, False)
     return df
 
 def calculate_spike_guard(df, window=20):
@@ -99,7 +99,7 @@ if __name__ == "__main__":
 
     kill_switch_threshold = 50.0
     kill_switch_triggered = False
-    cooldown_bars = 10
+    cooldown_bars = 1
     last_entry_idx = -cooldown_bars
 
     position = None
@@ -126,9 +126,9 @@ if __name__ == "__main__":
 
                 risk_amount = capital * risk_per_trade
                 distance = abs(entry_price - sl)
-                if distance < 0.01:
+                if distance < 0.05:
                     continue
-                lot_size = risk_amount / distance
+                lot_size = min(risk_amount / distance, 0.3)
 
                 position = {
                     'type': position_type,
@@ -142,7 +142,7 @@ if __name__ == "__main__":
                 last_entry_idx = i
         else:
             if position['type'] == 'long':
-                commission = max((position['lot_size'] / lot_unit) * commission_per_lot, 0.03)
+                commission = min((position['lot_size'] / lot_unit) * commission_per_lot, capital * 0.05)
                 if row['high'] >= position['entry'] + pip_size * 1.0:
                     position['sl'] = max(position['sl'], position['entry'])
                 if row['high'] >= position['tp'] - pip_size * 0.5:
@@ -176,7 +176,7 @@ if __name__ == "__main__":
                     })
                     position = None
             elif position['type'] == 'short':
-                commission = max((position['lot_size'] / lot_unit) * commission_per_lot, 0.03)
+                commission = min((position['lot_size'] / lot_unit) * commission_per_lot, capital * 0.05)
                 if row['low'] <= position['entry'] - pip_size * 1.0:
                     position['sl'] = min(position['sl'], position['entry'])
                 if row['low'] <= position['tp'] + pip_size * 0.5:
