@@ -75,6 +75,10 @@ risk_per_trade = 0.01
 tp_multiplier = 1.5
 sl_multiplier = 1.0
 pip_size = 1.0
+spread = 0.80  # 80 points = 0.80 USD (broker 3-digit)
+slippage = 0.05
+commission_per_lot = 0.10
+lot_unit = 0.01
 
 position = None
 trades = []
@@ -83,37 +87,91 @@ for i in range(1, len(df)):
     row = df.iloc[i]
     if position is None:
         if row['entry_signal'] == 'buy':
-            entry_price = row['close']
+            entry_price = row['close'] + spread + slippage
             sl = entry_price - pip_size * sl_multiplier
             tp = entry_price + pip_size * tp_multiplier
-            position = {'type': 'long', 'entry': entry_price, 'sl': sl, 'tp': tp, 'time': row['timestamp']}
+            position = {
+                'type': 'long',
+                'entry': entry_price,
+                'sl': sl,
+                'tp': tp,
+                'time': row['timestamp'],
+                'raw_entry': row['close'],
+            }
         elif row['entry_signal'] == 'sell':
-            entry_price = row['close']
+            entry_price = row['close'] - spread - slippage
             sl = entry_price + pip_size * sl_multiplier
             tp = entry_price - pip_size * tp_multiplier
-            position = {'type': 'short', 'entry': entry_price, 'sl': sl, 'tp': tp, 'time': row['timestamp']}
+            position = {
+                'type': 'short',
+                'entry': entry_price,
+                'sl': sl,
+                'tp': tp,
+                'time': row['timestamp'],
+                'raw_entry': row['close'],
+            }
     else:
         if position['type'] == 'long':
+            lot_size = (capital * risk_per_trade) / abs(position['entry'] - position['sl'])
+            commission = (lot_size / lot_unit) * commission_per_lot
             if row['low'] <= position['sl']:
                 pnl = -capital * risk_per_trade
+                pnl -= commission
                 capital += pnl
-                trades.append({**position, 'exit_time': row['timestamp'], 'exit_price': position['sl'], 'pnl': pnl, 'capital': capital, 'exit': 'SL'})
+                trades.append({
+                    **position,
+                    'exit_time': row['timestamp'],
+                    'exit_price': position['sl'],
+                    'pnl': pnl,
+                    'commission': commission,
+                    'capital': capital,
+                    'exit': 'SL',
+                })
                 position = None
             elif row['high'] >= position['tp']:
                 pnl = capital * risk_per_trade * tp_multiplier
+                pnl -= commission
                 capital += pnl
-                trades.append({**position, 'exit_time': row['timestamp'], 'exit_price': position['tp'], 'pnl': pnl, 'capital': capital, 'exit': 'TP'})
+                trades.append({
+                    **position,
+                    'exit_time': row['timestamp'],
+                    'exit_price': position['tp'],
+                    'pnl': pnl,
+                    'commission': commission,
+                    'capital': capital,
+                    'exit': 'TP',
+                })
                 position = None
         elif position['type'] == 'short':
+            lot_size = (capital * risk_per_trade) / abs(position['entry'] - position['sl'])
+            commission = (lot_size / lot_unit) * commission_per_lot
             if row['high'] >= position['sl']:
                 pnl = -capital * risk_per_trade
+                pnl -= commission
                 capital += pnl
-                trades.append({**position, 'exit_time': row['timestamp'], 'exit_price': position['sl'], 'pnl': pnl, 'capital': capital, 'exit': 'SL'})
+                trades.append({
+                    **position,
+                    'exit_time': row['timestamp'],
+                    'exit_price': position['sl'],
+                    'pnl': pnl,
+                    'commission': commission,
+                    'capital': capital,
+                    'exit': 'SL',
+                })
                 position = None
             elif row['low'] <= position['tp']:
                 pnl = capital * risk_per_trade * tp_multiplier
+                pnl -= commission
                 capital += pnl
-                trades.append({**position, 'exit_time': row['timestamp'], 'exit_price': position['tp'], 'pnl': pnl, 'capital': capital, 'exit': 'TP'})
+                trades.append({
+                    **position,
+                    'exit_time': row['timestamp'],
+                    'exit_price': position['tp'],
+                    'pnl': pnl,
+                    'commission': commission,
+                    'capital': capital,
+                    'exit': 'TP',
+                })
                 position = None
 
 # === สรุปผล ===
