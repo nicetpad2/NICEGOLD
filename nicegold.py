@@ -56,9 +56,9 @@ def calculate_trend_confirm(df, price_col='close'):
     return df
 
 def label_wave_phase(df):
-    divergence = df.get('divergence', pd.Series(None, index=df.index))
-    rsi = df.get('RSI', pd.Series(50, index=df.index))
-    pattern = df.get('Pattern_Label', pd.Series('', index=df.index))
+    divergence = df.get('divergence', pd.Series(None, index=df.index, dtype=object))
+    rsi = df.get('RSI', pd.Series(50, index=df.index, dtype=float))
+    pattern = df.get('Pattern_Label', pd.Series('', index=df.index, dtype=object))
 
     phase = []
     for div, r, pat in zip(divergence, rsi, pattern):
@@ -103,8 +103,8 @@ def validate_divergence(df, hist_threshold=0.03):
 
 def generate_entry_signal(df, gain_z_thresh=0.3, rsi_thresh=50):
     gain_z = df.get('Gain_Z', pd.Series(0, index=df.index))
-    rsi = df.get('RSI', pd.Series(50, index=df.index))
-    pattern = df.get('Pattern_Label', pd.Series('', index=df.index))
+    rsi = df.get('RSI', pd.Series(50, index=df.index, dtype=float))
+    pattern = df.get('Pattern_Label', pd.Series('', index=df.index, dtype=object))
 
     df['Signal_Score'] = 0
     df['Signal_Score'] += np.where(gain_z > gain_z_thresh, 1, 0)
@@ -185,7 +185,7 @@ def generate_entry_score_signal(df, ema_col="ema35", rsi_threshold=50):
 def apply_wave_macd_cross_entry(df, ema_col="ema35"):
     df = df.copy()
     for i in range(2, len(df)):
-        if df.at[df.index[i], 'entry_signal'] is None:
+        if pd.isna(df.at[df.index[i], 'entry_signal']):
             if (
                 df.at[df.index[i], 'Wave_Phase'] in ['W.2', 'W.3', 'W.5', 'W.B'] and
                 df.at[df.index[i], 'divergence'] == 'bullish' and

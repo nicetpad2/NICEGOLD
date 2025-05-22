@@ -55,3 +55,7 @@
 ## [v1.6.0] — 2025-05-29
 ### Added
 - Patch G33: Fold #1 parameter optimization, MACD cross divergence entry, spike score for force entry, and reversal scoring
+
+## [v1.7.0] — 2025-05-30
+### Added
+- Patch G34: Wave phase divergence logic with pd.isna fix, spike_score calculation, and force entry cooldown tweak
