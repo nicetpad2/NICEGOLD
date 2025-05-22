@@ -52,5 +52,27 @@ class TestIndicators(unittest.TestCase):
         df = nicegold.label_wave_phase(df)
         self.assertIn('Wave_Phase', df.columns)
 
+    @unittest.skipUnless(pandas_available and numpy_available, 'requires pandas and numpy')
+    def test_detect_elliott_wave_phase_column(self):
+        df = pd.DataFrame({
+            'close': [1, 2, 1, 3, 1, 4, 1],
+            'RSI': [40, 60, 40, 60, 40, 60, 40],
+            'divergence': ['bullish', 'bearish', 'bullish', 'bearish', 'bullish', 'bearish', 'bullish']
+        })
+        df = nicegold.detect_elliott_wave_phase(df)
+        self.assertIn('Wave_Phase', df.columns)
+
+    @unittest.skipUnless(pandas_available and numpy_available, 'requires pandas and numpy')
+    def test_generate_entry_signal_wave_enhanced_column(self):
+        df = pd.DataFrame({
+            'close': [1, 2, 3, 4],
+            'RSI': [60, 60, 60, 60],
+            'ema35': [1, 2, 3, 4],
+            'divergence': ['bullish', 'bullish', 'bullish', 'bullish'],
+            'Wave_Phase': ['W.2', 'W.3', 'W.5', 'W.B']
+        })
+        df = nicegold.generate_entry_signal_wave_enhanced(df)
+        self.assertIn('entry_signal', df.columns)
+
 if __name__ == '__main__':
     unittest.main()

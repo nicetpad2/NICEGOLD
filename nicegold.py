@@ -70,6 +70,28 @@ def label_wave_phase(df):
     df['Wave_Phase'] = phase
     return df
 
+def detect_elliott_wave_phase(df, price_col="close", rsi_col="RSI", divergence_col="divergence"):
+    df = df.copy()
+    df["Wave_Phase"] = None
+
+    df["zz_high"] = (df[price_col] > df[price_col].shift(1)) & (df[price_col] > df[price_col].shift(-1))
+    df["zz_low"] = (df[price_col] < df[price_col].shift(1)) & (df[price_col] < df[price_col].shift(-1))
+
+    wave_counter = 1
+    for i in range(2, len(df)-2):
+        row = df.iloc[i]
+        if row["zz_low"] and row[rsi_col] < 45 and row[divergence_col] == "bullish":
+            df.at[df.index[i], "Wave_Phase"] = f"W.{wave_counter}"
+            wave_counter += 1
+        elif row["zz_high"] and row[rsi_col] > 55 and row[divergence_col] == "bearish":
+            df.at[df.index[i], "Wave_Phase"] = f"W.{wave_counter}"
+            wave_counter += 1
+
+        if wave_counter > 5:
+            wave_counter = 1
+
+    return df
+
 def validate_divergence(df, hist_threshold=0.03):
     df['hist_strength'] = df['macd_hist'].diff().abs()
     df['valid_divergence'] = np.where(
@@ -112,6 +134,28 @@ def generate_entry_signal(df, gain_z_thresh=0.3, rsi_thresh=50):
 
     df['entry_signal'] = np.where(hybrid_buy, 'buy',
         np.where(hybrid_sell, 'sell', df['entry_signal']))
+    return df
+
+def generate_entry_signal_wave_enhanced(df, rsi_buy=52, rsi_sell=48, ema_col="ema35"):
+    df = df.copy()
+    df["entry_signal"] = None
+
+    buy_cond = (
+        (df["Wave_Phase"].isin(["W.2", "W.3", "W.5", "W.B"])) &
+        (df["divergence"] == "bullish") &
+        (df["RSI"] > rsi_buy) &
+        (df["close"] >= df[ema_col] * 0.995) & (df["close"] <= df[ema_col] * 1.005)
+    )
+
+    sell_cond = (
+        (df["Wave_Phase"].isin(["W.2", "W.3", "W.5", "W.B"])) &
+        (df["divergence"] == "bearish") &
+        (df["RSI"] < rsi_sell) &
+        (df["close"] >= df[ema_col] * 0.995) & (df["close"] <= df[ema_col] * 1.005)
+    )
+
+    df.loc[buy_cond, "entry_signal"] = "buy"
+    df.loc[sell_cond, "entry_signal"] = "sell"
     return df
 
 def should_force_entry(row, last_entry_time, current_time, cooldown=240):

@@ -38,3 +38,8 @@
 - Wave phase labeling system
 - Elliott-DivMeta Hybrid signal
 - TP1 at 0.8R with break-even stop
+
+## [v1.3.1] — 2025-05-27
+### Added
+- Elliott Wave Dynamic Labeller v2.1 with zigzag + RSI divergence
+- Entry Signal enhanced by wave phase filtering

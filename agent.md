@@ -1,6 +1,6 @@
 # 🧠 agent.md — Gold AI: Elliott-MACD Realistic QA Agent
-**Version:** v1.3.0
-**Last updated:** 2025-05-26
+**Version:** v1.3.1
+**Last updated:** 2025-05-27
 **Maintainer:** AI Studio QA / Dev Agent System  
 
 ## 📌 Agent Role: `elliott_macd_backtest_agent`
@@ -20,6 +20,8 @@ This agent runs **realistic backtests** on XAUUSD M1 historical data using:
 | `load_data()` | Parse and convert Pali/Buddhist date to AD. Handle `timestamp` as datetime index. |
 | `calculate_indicators()` | Calculate MACD line, signal line, histogram, EMA35 |
 | `detect_signal()` | Generate entry signal using Divergence + MACD Cross + EMA Touch |
+| `detect_elliott_wave_phase()` | Dynamic W1-W5/A-B-C labeling using RSI and divergence |
+| `generate_entry_signal_wave_enhanced()` | Entry only during W.2/W.3/W.5/B with EMA filter |
 | `run_backtest()` | Execute realistic backtest on last N rows (e.g., 200,000) |
 | `apply_constraints()` | Apply spread, slippage, and commission before evaluating PnL |
 | `generate_log()` | Export `trade_log.csv` with entry/exit/timestamp/pnl/commission |
@@ -36,7 +38,8 @@ This agent runs **realistic backtests** on XAUUSD M1 historical data using:
 agent = ElliottMACDBacktestAgent()
 df = agent.load_data("XAUUSD_M1.csv")
 df = agent.calculate_indicators(df)
-signal_df = agent.detect_signal(df)
+df = agent.detect_elliott_wave_phase(df)
+signal_df = agent.generate_entry_signal_wave_enhanced(df)
 result_df = agent.run_backtest(signal_df, last_n_rows=200000)
 agent.export_log(result_df, path="realistic_trade_log.csv")
 ```
