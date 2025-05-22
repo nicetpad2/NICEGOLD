@@ -7,6 +7,8 @@ numpy_available = importlib.util.find_spec('numpy') is not None
 if pandas_available and numpy_available:
     import pandas as pd
     import numpy as np
+    import sys, os
+    sys.path.append(os.path.dirname(os.path.dirname(__file__)))
     import nicegold
 
 class TestIndicators(unittest.TestCase):
@@ -25,6 +27,8 @@ class TestIndicators(unittest.TestCase):
         df = nicegold.detect_macd_divergence(df)
         df = nicegold.macd_cross_signal(df)
         df = nicegold.apply_ema_trigger(df)
+        df = nicegold.calculate_spike_guard(df)
+        df = nicegold.validate_divergence(df)
         df = nicegold.generate_entry_signal(df)
         self.assertIn('entry_signal', df.columns)
 
