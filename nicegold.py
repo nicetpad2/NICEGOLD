@@ -190,7 +190,8 @@ def should_force_entry(row, last_entry_time, current_time, cooldown=240):
     return False
 
 # === Apply Strategy ===
-if __name__ == "__main__":
+def run_backtest_cli():  # pragma: no cover
+    """Execute the realistic backtest when run as a script."""
     # === โหลดและแปลงพ.ศ.เป็นค.ศ. ===
     df = pd.read_csv("XAUUSD_M1.csv")
     df.columns = [col.lower() for col in df.columns]
@@ -451,3 +452,6 @@ if __name__ == "__main__":
     print(df_trades.tail(10))
     if kill_switch_triggered:
         print("Kill switch activated: capital below threshold")
+
+if __name__ == "__main__":  # pragma: no cover
+    run_backtest_cli()
