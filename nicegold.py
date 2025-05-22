@@ -51,12 +51,32 @@ def validate_divergence(df, hist_threshold=0.03):
         df['divergence'], None)
     return df
 
-def generate_entry_signal(df):
+def generate_entry_signal(df, gain_z_thresh=0.3, rsi_thresh=50):
+    gain_z = df.get('Gain_Z', pd.Series(0, index=df.index))
+    rsi = df.get('RSI', pd.Series(50, index=df.index))
+    pattern = df.get('Pattern_Label', pd.Series('', index=df.index))
+
+    df['Signal_Score'] = 0
+    df['Signal_Score'] += np.where(gain_z > gain_z_thresh, 1, 0)
+    df['Signal_Score'] -= np.where(gain_z < -gain_z_thresh, 1, 0)
+    df['Signal_Score'] += np.where((rsi > rsi_thresh) & (gain_z > 0), 1, 0)
+    df['Signal_Score'] -= np.where((rsi < rsi_thresh) & (gain_z < 0), 1, 0)
+    df['Signal_Score'] += np.where(pattern.isin(['Breakout', 'StrongTrend']), 1, 0)
+
     df['entry_signal'] = np.where(
-        (df['valid_divergence'] == 'bullish') & df['macd_cross_up'] & df['ema_touch'], 'buy',
-        np.where((df['valid_divergence'] == 'bearish') & df['macd_cross_down'] & df['ema_touch'], 'sell', None)
+        df['Signal_Score'] >= 2, 'buy',
+        np.where(df['Signal_Score'] <= -2, 'sell', None)
     )
     return df
+
+def should_force_entry(row, last_entry_time, current_time, cooldown=240):
+    if row['entry_signal'] is not None:
+        return False
+    if (current_time - last_entry_time).total_seconds() / 60 < cooldown:
+        return False
+    if row.get('spike_score', 0) > 0.6 and abs(row.get('Gain_Z', 0)) > 0.5 and row.get('Pattern_Label', '') in ['Breakout', 'StrongTrend']:
+        return True
+    return False
 
 # === Apply Strategy ===
 if __name__ == "__main__":
@@ -83,7 +103,16 @@ if __name__ == "__main__":
     df = apply_ema_trigger(df)
     df = calculate_spike_guard(df)
     df = validate_divergence(df)
-    df = generate_entry_signal(df)
+
+    fold_param = {
+        0: {'gain_z_thresh': 0.3, 'rsi_thresh': 50},
+        1: {'gain_z_thresh': 0.25, 'rsi_thresh': 48},
+    }
+    current_fold = 0
+    param = fold_param.get(current_fold, {})
+    gain_z_th = param.get('gain_z_thresh', 0.3)
+    rsi_th = param.get('rsi_thresh', 50)
+    df = generate_entry_signal(df, gain_z_thresh=gain_z_th, rsi_thresh=rsi_th)
 
 # === Backtest สมจริง: ถือไม้เดียว, TP:SL = 2:1 ===
     initial_capital = 100.0
@@ -102,6 +131,12 @@ if __name__ == "__main__":
     cooldown_bars = 1
     last_entry_idx = -cooldown_bars
 
+    consecutive_loss = 0
+    recovery_multiplier = 0.5
+    base_lot = 0.1
+    prev_trade_result = None
+    last_exit_idx = -cooldown_bars
+
     position = None
     trades = []
 
@@ -111,8 +146,14 @@ if __name__ == "__main__":
         if i % 5000 == 0:
             position = None
 
+        if row.get('spike_score', 0) > 0.75:
+            continue
+
         if position is None:
-            if row['entry_signal'] in ['buy', 'sell'] and not row['spike'] and i - last_entry_idx > cooldown_bars:
+            allow_reentry = True
+            if prev_trade_result == 'SL' and (i - last_exit_idx) < cooldown_bars:
+                allow_reentry = False
+            if row['entry_signal'] in ['buy', 'sell'] and not row['spike'] and i - last_entry_idx > cooldown_bars and allow_reentry:
                 if row['entry_signal'] == 'buy':
                     entry_price = row['close'] + spread + slippage
                     sl = entry_price - pip_size * sl_multiplier
@@ -129,6 +170,8 @@ if __name__ == "__main__":
                 if distance < 0.05:
                     continue
                 lot_size = min(risk_amount / distance, 0.3)
+                if consecutive_loss >= 2:
+                    lot_size *= recovery_multiplier
 
                 position = {
                     'type': position_type,
@@ -138,13 +181,61 @@ if __name__ == "__main__":
                     'time': row['timestamp'],
                     'raw_entry': row['close'],
                     'lot_size': lot_size,
+                    'tp1_hit': False,
+                    'size': 1.0,
+                }
+                last_entry_idx = i
+            elif should_force_entry(row, df.iloc[last_entry_idx]['timestamp'] if last_entry_idx >= 0 else row['timestamp'], row['timestamp']):
+                entry_signal = 'buy' if row.get('Gain_Z', 0) > 0 else 'sell'
+                if entry_signal == 'buy':
+                    entry_price = row['close'] + spread + slippage
+                    sl = entry_price - pip_size * sl_multiplier
+                    tp = entry_price + pip_size * tp_multiplier
+                    position_type = 'long'
+                else:
+                    entry_price = row['close'] - spread - slippage
+                    sl = entry_price + pip_size * sl_multiplier
+                    tp = entry_price - pip_size * tp_multiplier
+                    position_type = 'short'
+
+                risk_amount = capital * risk_per_trade
+                distance = abs(entry_price - sl)
+                if distance < 0.05:
+                    continue
+                lot_size = min(risk_amount / distance, 0.3)
+                if consecutive_loss >= 2:
+                    lot_size *= recovery_multiplier
+
+                position = {
+                    'type': position_type,
+                    'entry': entry_price,
+                    'sl': sl,
+                    'tp': tp,
+                    'time': row['timestamp'],
+                    'raw_entry': row['close'],
+                    'lot_size': lot_size,
+                    'tp1_hit': False,
+                    'size': 1.0,
                 }
                 last_entry_idx = i
         else:
             if position['type'] == 'long':
                 commission = min((position['lot_size'] / lot_unit) * commission_per_lot, capital * 0.05)
-                if row['high'] >= position['entry'] + pip_size * 1.0:
-                    position['sl'] = max(position['sl'], position['entry'])
+                if not position['tp1_hit'] and row['high'] >= position['entry'] + pip_size * 1.0:
+                    pnl = capital * risk_per_trade * 0.5
+                    pnl -= commission
+                    capital += pnl
+                    position['sl'] = position['entry']
+                    position['tp1_hit'] = True
+                    trades.append({
+                        **position,
+                        'exit_time': row['timestamp'],
+                        'exit_price': position['entry'] + pip_size * 1.0,
+                        'pnl': pnl,
+                        'commission': commission,
+                        'capital': capital,
+                        'exit': 'TP1',
+                    })
                 if row['high'] >= position['tp'] - pip_size * 0.5:
                     position['sl'] = max(position['sl'], row['close'] - pip_size * 0.5)
                 if row['low'] <= position['sl']:
@@ -160,9 +251,12 @@ if __name__ == "__main__":
                         'capital': capital,
                         'exit': 'SL',
                     })
+                    consecutive_loss += 1
+                    prev_trade_result = 'SL'
+                    last_exit_idx = i
                     position = None
                 elif row['high'] >= position['tp']:
-                    pnl = capital * risk_per_trade * tp_multiplier
+                    pnl = capital * risk_per_trade * (0.5 if position['tp1_hit'] else 1.0)
                     pnl -= commission
                     capital += pnl
                     trades.append({
@@ -172,13 +266,29 @@ if __name__ == "__main__":
                         'pnl': pnl,
                         'commission': commission,
                         'capital': capital,
-                        'exit': 'TP',
+                        'exit': 'TP2' if position['tp1_hit'] else 'TP',
                     })
+                    consecutive_loss = 0
+                    prev_trade_result = 'TP'
+                    last_exit_idx = i
                     position = None
             elif position['type'] == 'short':
                 commission = min((position['lot_size'] / lot_unit) * commission_per_lot, capital * 0.05)
-                if row['low'] <= position['entry'] - pip_size * 1.0:
-                    position['sl'] = min(position['sl'], position['entry'])
+                if not position['tp1_hit'] and row['low'] <= position['entry'] - pip_size * 1.0:
+                    pnl = capital * risk_per_trade * 0.5
+                    pnl -= commission
+                    capital += pnl
+                    position['sl'] = position['entry']
+                    position['tp1_hit'] = True
+                    trades.append({
+                        **position,
+                        'exit_time': row['timestamp'],
+                        'exit_price': position['entry'] - pip_size * 1.0,
+                        'pnl': pnl,
+                        'commission': commission,
+                        'capital': capital,
+                        'exit': 'TP1',
+                    })
                 if row['low'] <= position['tp'] + pip_size * 0.5:
                     position['sl'] = min(position['sl'], row['close'] + pip_size * 0.5)
                 if row['high'] >= position['sl']:
@@ -194,9 +304,12 @@ if __name__ == "__main__":
                         'capital': capital,
                         'exit': 'SL',
                     })
+                    consecutive_loss += 1
+                    prev_trade_result = 'SL'
+                    last_exit_idx = i
                     position = None
                 elif row['low'] <= position['tp']:
-                    pnl = capital * risk_per_trade * tp_multiplier
+                    pnl = capital * risk_per_trade * (0.5 if position['tp1_hit'] else 1.0)
                     pnl -= commission
                     capital += pnl
                     trades.append({
@@ -206,8 +319,11 @@ if __name__ == "__main__":
                         'pnl': pnl,
                         'commission': commission,
                         'capital': capital,
-                        'exit': 'TP',
+                        'exit': 'TP2' if position['tp1_hit'] else 'TP',
                     })
+                    consecutive_loss = 0
+                    prev_trade_result = 'TP'
+                    last_exit_idx = i
                     position = None
 
         if capital < kill_switch_threshold:
