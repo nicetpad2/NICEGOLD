@@ -43,6 +43,33 @@ def calculate_spike_guard(df, window=20):
     df['spike'] = df['hl_range'] > df['volatility'] * 3
     return df
 
+def calculate_trend_confirm(df, price_col='close'):
+    ema_fast = df[price_col].ewm(span=10, adjust=False).mean()
+    ema_slow = df[price_col].ewm(span=35, adjust=False).mean()
+    df['ema_fast'] = ema_fast
+    df['ema_slow'] = ema_slow
+    df['trend_confirm'] = np.where(
+        ema_fast > ema_slow, 'up',
+        np.where(ema_fast < ema_slow, 'down', 'flat')
+    )
+    return df
+
+def label_wave_phase(df):
+    divergence = df.get('divergence', pd.Series(None, index=df.index))
+    rsi = df.get('RSI', pd.Series(50, index=df.index))
+    pattern = df.get('Pattern_Label', pd.Series('', index=df.index))
+
+    phase = []
+    for div, r, pat in zip(divergence, rsi, pattern):
+        if div == 'bearish' and r > 55 and pat == 'Breakout':
+            phase.append('W.5')
+        elif div == 'bullish' and r < 45 and pat == 'Reversal':
+            phase.append('W.B')
+        else:
+            phase.append(None)
+    df['Wave_Phase'] = phase
+    return df
+
 def validate_divergence(df, hist_threshold=0.03):
     df['hist_strength'] = df['macd_hist'].diff().abs()
     df['valid_divergence'] = np.where(
@@ -67,6 +94,24 @@ def generate_entry_signal(df, gain_z_thresh=0.3, rsi_thresh=50):
         df['Signal_Score'] >= 2, 'buy',
         np.where(df['Signal_Score'] <= -2, 'sell', None)
     )
+
+    hybrid_buy = (
+        (df.get('divergence') == 'bullish') &
+        (rsi > 52) &
+        pattern.isin(['Breakout', 'Reversal']) &
+        df.get('ema_touch', False) &
+        (df.get('trend_confirm') == 'up')
+    )
+    hybrid_sell = (
+        (df.get('divergence') == 'bearish') &
+        (rsi < 48) &
+        pattern.isin(['Breakout', 'Reversal']) &
+        df.get('ema_touch', False) &
+        (df.get('trend_confirm') == 'down')
+    )
+
+    df['entry_signal'] = np.where(hybrid_buy, 'buy',
+        np.where(hybrid_sell, 'sell', df['entry_signal']))
     return df
 
 def should_force_entry(row, last_entry_time, current_time, cooldown=240):
@@ -103,6 +148,8 @@ if __name__ == "__main__":
     df = apply_ema_trigger(df)
     df = calculate_spike_guard(df)
     df = validate_divergence(df)
+    df = calculate_trend_confirm(df)
+    df = label_wave_phase(df)
 
     fold_param = {
         0: {'gain_z_thresh': 0.3, 'rsi_thresh': 50},
@@ -221,7 +268,7 @@ if __name__ == "__main__":
         else:
             if position['type'] == 'long':
                 commission = min((position['lot_size'] / lot_unit) * commission_per_lot, capital * 0.05)
-                if not position['tp1_hit'] and row['high'] >= position['entry'] + pip_size * 1.0:
+                if not position['tp1_hit'] and row['high'] >= position['entry'] + pip_size * 0.8:
                     pnl = capital * risk_per_trade * 0.5
                     pnl -= commission
                     capital += pnl
@@ -230,7 +277,7 @@ if __name__ == "__main__":
                     trades.append({
                         **position,
                         'exit_time': row['timestamp'],
-                        'exit_price': position['entry'] + pip_size * 1.0,
+                        'exit_price': position['entry'] + pip_size * 0.8,
                         'pnl': pnl,
                         'commission': commission,
                         'capital': capital,
@@ -274,7 +321,7 @@ if __name__ == "__main__":
                     position = None
             elif position['type'] == 'short':
                 commission = min((position['lot_size'] / lot_unit) * commission_per_lot, capital * 0.05)
-                if not position['tp1_hit'] and row['low'] <= position['entry'] - pip_size * 1.0:
+                if not position['tp1_hit'] and row['low'] <= position['entry'] - pip_size * 0.8:
                     pnl = capital * risk_per_trade * 0.5
                     pnl -= commission
                     capital += pnl
@@ -283,7 +330,7 @@ if __name__ == "__main__":
                     trades.append({
                         **position,
                         'exit_time': row['timestamp'],
-                        'exit_price': position['entry'] - pip_size * 1.0,
+                        'exit_price': position['entry'] - pip_size * 0.8,
                         'pnl': pnl,
                         'commission': commission,
                         'capital': capital,
