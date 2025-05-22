@@ -74,5 +74,18 @@ class TestIndicators(unittest.TestCase):
         df = nicegold.generate_entry_signal_wave_enhanced(df)
         self.assertIn('entry_signal', df.columns)
 
+    @unittest.skipUnless(pandas_available and numpy_available, 'requires pandas and numpy')
+    def test_generate_entry_score_signal_column(self):
+        df = pd.DataFrame({
+            'close': [1, 2, 3],
+            'ema35': [1, 2, 3],
+            'RSI': [55, 55, 55],
+            'divergence': ['bullish', 'bullish', 'bullish'],
+            'Wave_Phase': ['W.2', 'W.3', 'W.5']
+        })
+        df = nicegold.generate_entry_score_signal(df)
+        self.assertIn('entry_score', df.columns)
+        self.assertIn('entry_signal', df.columns)
+
 if __name__ == '__main__':
     unittest.main()

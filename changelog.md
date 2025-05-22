@@ -43,3 +43,7 @@
 ### Added
 - Elliott Wave Dynamic Labeller v2.1 with zigzag + RSI divergence
 - Entry Signal enhanced by wave phase filtering
+
+## [v1.4.0] — 2025-05-28
+### Added
+- Entry Score Based System (`generate_entry_score_signal`)

@@ -158,6 +158,28 @@ def generate_entry_signal_wave_enhanced(df, rsi_buy=52, rsi_sell=48, ema_col="em
     df.loc[sell_cond, "entry_signal"] = "sell"
     return df
 
+def generate_entry_score_signal(df, ema_col="ema35", rsi_threshold=50):
+    df = df.copy()
+
+    df["entry_score"] = 0
+    df["entry_score"] += df["Wave_Phase"].isin(["W.2", "W.3", "W.5", "W.B"]).astype(int)
+    df["entry_score"] += df["divergence"].isin(["bullish", "bearish"]).astype(int)
+
+    rsi_buy_cond = (df["divergence"] == "bullish") & (df["RSI"] > rsi_threshold)
+    rsi_sell_cond = (df["divergence"] == "bearish") & (df["RSI"] < rsi_threshold)
+    df["entry_score"] += (rsi_buy_cond | rsi_sell_cond).astype(int)
+
+    ema_prox = (df["close"] >= df[ema_col] * 0.995) & (df["close"] <= df[ema_col] * 1.005)
+    df["entry_score"] += ema_prox.astype(int)
+
+    df["entry_signal"] = None
+    buy_cond = (df["entry_score"] >= 2) & (df["divergence"] == "bullish") & (df["RSI"] > rsi_threshold)
+    sell_cond = (df["entry_score"] >= 2) & (df["divergence"] == "bearish") & (df["RSI"] < rsi_threshold)
+
+    df.loc[buy_cond, "entry_signal"] = "buy"
+    df.loc[sell_cond, "entry_signal"] = "sell"
+    return df
+
 def should_force_entry(row, last_entry_time, current_time, cooldown=240):
     if row['entry_signal'] is not None:
         return False
