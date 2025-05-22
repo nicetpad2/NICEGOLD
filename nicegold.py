@@ -37,10 +37,24 @@ def apply_ema_trigger(df, price_col='close'):
         (df[price_col] <= df['ema35'] * 1.002) & (df[price_col] >= df['ema35'] * 0.998), True, False)
     return df
 
+def calculate_spike_guard(df, window=20):
+    df['hl_range'] = df['high'] - df['low']
+    df['volatility'] = df['hl_range'].rolling(window=window).std()
+    df['spike'] = df['hl_range'] > df['volatility'] * 3
+    return df
+
+def validate_divergence(df, hist_threshold=0.03):
+    df['hist_strength'] = df['macd_hist'].diff().abs()
+    df['valid_divergence'] = np.where(
+        ((df['divergence'] == 'bullish') & (df['macd_hist'] > hist_threshold)) |
+        ((df['divergence'] == 'bearish') & (df['macd_hist'] < -hist_threshold)),
+        df['divergence'], None)
+    return df
+
 def generate_entry_signal(df):
     df['entry_signal'] = np.where(
-        (df['divergence'] == 'bullish') & df['macd_cross_up'] & df['ema_touch'], 'buy',
-        np.where((df['divergence'] == 'bearish') & df['macd_cross_down'] & df['ema_touch'], 'sell', None)
+        (df['valid_divergence'] == 'bullish') & df['macd_cross_up'] & df['ema_touch'], 'buy',
+        np.where((df['valid_divergence'] == 'bearish') & df['macd_cross_down'] & df['ema_touch'], 'sell', None)
     )
     return df
 
@@ -67,54 +81,72 @@ if __name__ == "__main__":
     df = detect_macd_divergence(df)
     df = macd_cross_signal(df)
     df = apply_ema_trigger(df)
+    df = calculate_spike_guard(df)
+    df = validate_divergence(df)
     df = generate_entry_signal(df)
 
-# === Backtest สมจริง: ถือไม้เดียว, TP:SL = 1.5:1 ===
+# === Backtest สมจริง: ถือไม้เดียว, TP:SL = 2:1 ===
     initial_capital = 100.0
     capital = initial_capital
     risk_per_trade = 0.01
-    tp_multiplier = 1.5
+    tp_multiplier = 2.0
     sl_multiplier = 1.0
-    pip_size = 1.0
+    pip_size = 0.1
     spread = 0.80  # 80 points = 0.80 USD (broker 3-digit)
     slippage = 0.05
     commission_per_lot = 0.10
     lot_unit = 0.01
+
+    kill_switch_threshold = 50.0
+    kill_switch_triggered = False
+    cooldown_bars = 10
+    last_entry_idx = -cooldown_bars
 
     position = None
     trades = []
 
     for i in range(1, len(df)):
         row = df.iloc[i]
+
+        if i % 5000 == 0:
+            position = None
+
         if position is None:
-            if row['entry_signal'] == 'buy':
-                entry_price = row['close'] + spread + slippage
-                sl = entry_price - pip_size * sl_multiplier
-                tp = entry_price + pip_size * tp_multiplier
+            if row['entry_signal'] in ['buy', 'sell'] and not row['spike'] and i - last_entry_idx > cooldown_bars:
+                if row['entry_signal'] == 'buy':
+                    entry_price = row['close'] + spread + slippage
+                    sl = entry_price - pip_size * sl_multiplier
+                    tp = entry_price + pip_size * tp_multiplier
+                    position_type = 'long'
+                else:
+                    entry_price = row['close'] - spread - slippage
+                    sl = entry_price + pip_size * sl_multiplier
+                    tp = entry_price - pip_size * tp_multiplier
+                    position_type = 'short'
+
+                risk_amount = capital * risk_per_trade
+                distance = abs(entry_price - sl)
+                if distance < 0.01:
+                    continue
+                lot_size = risk_amount / distance
+
                 position = {
-                    'type': 'long',
+                    'type': position_type,
                     'entry': entry_price,
                     'sl': sl,
                     'tp': tp,
                     'time': row['timestamp'],
                     'raw_entry': row['close'],
+                    'lot_size': lot_size,
                 }
-            elif row['entry_signal'] == 'sell':
-                entry_price = row['close'] - spread - slippage
-                sl = entry_price + pip_size * sl_multiplier
-                tp = entry_price - pip_size * tp_multiplier
-                position = {
-                    'type': 'short',
-                    'entry': entry_price,
-                    'sl': sl,
-                    'tp': tp,
-                    'time': row['timestamp'],
-                    'raw_entry': row['close'],
-                }
+                last_entry_idx = i
         else:
             if position['type'] == 'long':
-                lot_size = (capital * risk_per_trade) / abs(position['entry'] - position['sl'])
-                commission = (lot_size / lot_unit) * commission_per_lot
+                commission = max((position['lot_size'] / lot_unit) * commission_per_lot, 0.03)
+                if row['high'] >= position['entry'] + pip_size * 1.0:
+                    position['sl'] = max(position['sl'], position['entry'])
+                if row['high'] >= position['tp'] - pip_size * 0.5:
+                    position['sl'] = max(position['sl'], row['close'] - pip_size * 0.5)
                 if row['low'] <= position['sl']:
                     pnl = -capital * risk_per_trade
                     pnl -= commission
@@ -144,8 +176,11 @@ if __name__ == "__main__":
                     })
                     position = None
             elif position['type'] == 'short':
-                lot_size = (capital * risk_per_trade) / abs(position['entry'] - position['sl'])
-                commission = (lot_size / lot_unit) * commission_per_lot
+                commission = max((position['lot_size'] / lot_unit) * commission_per_lot, 0.03)
+                if row['low'] <= position['entry'] - pip_size * 1.0:
+                    position['sl'] = min(position['sl'], position['entry'])
+                if row['low'] <= position['tp'] + pip_size * 0.5:
+                    position['sl'] = min(position['sl'], row['close'] + pip_size * 0.5)
                 if row['high'] >= position['sl']:
                     pnl = -capital * risk_per_trade
                     pnl -= commission
@@ -175,9 +210,15 @@ if __name__ == "__main__":
                     })
                     position = None
 
+        if capital < kill_switch_threshold:
+            kill_switch_triggered = True
+            break
+
 # === สรุปผล ===
     df_trades = pd.DataFrame(trades)
     print("Final Equity:", round(capital, 2))
     print("Total Return: {:.2%}".format((capital - initial_capital) / initial_capital))
     print("Winrate: {:.2%}".format((df_trades['pnl'] > 0).mean()))
     print(df_trades.tail(10))
+    if kill_switch_triggered:
+        print("Kill switch activated: capital below threshold")

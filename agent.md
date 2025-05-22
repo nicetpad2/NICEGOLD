@@ -1,6 +1,6 @@
 # 🧠 agent.md — Gold AI: Elliott-MACD Realistic QA Agent
-**Version:** v1.0.0  
-**Last updated:** 2025-05-22  
+**Version:** v1.1.0
+**Last updated:** 2025-05-23
 **Maintainer:** AI Studio QA / Dev Agent System  
 
 ## 📌 Agent Role: `elliott_macd_backtest_agent`
@@ -29,7 +29,7 @@ This agent runs **realistic backtests** on XAUUSD M1 historical data using:
 - 3-digit Gold broker logic: `1 pip = 0.01`, `80 point = 0.80`
 - Commission model is **per execution only**
 - Single position (no scaling / pyramiding)
-- TP:SL = 1.5:1 | Risk per trade = 1% of capital | Starting Capital: $100
+- TP:SL = 2:1 | Risk per trade = 1% of capital | Starting Capital: $100
 
 ### 🧩 Integration Format:
 ```python
