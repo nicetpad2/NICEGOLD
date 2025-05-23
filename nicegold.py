@@ -30,14 +30,15 @@ except Exception:  # pragma: no cover - optional dependency
 
 CONFIG_PATH = "config.yaml"
 
-TRADE_DIR = "/content/drive/MyDrive/NICEGOLD/logs"
+# Paths adjusted for repository execution
+TRADE_DIR = os.path.join(os.path.dirname(__file__), "logs")
 os.makedirs(TRADE_DIR, exist_ok=True)
 
-M15_PATH = "/content/drive/MyDrive/NICEGOLD/XAUUSD_M15.csv"
-M1_PATH = "/content/drive/MyDrive/NICEGOLD/XAUUSD_M1.csv"
+M15_PATH = os.path.join(os.path.dirname(__file__), "XAUUSD_M15.csv")
+M1_PATH = os.path.join(os.path.dirname(__file__), "XAUUSD_M1.csv")
 # === Default Parameters (Updated) ===
 initial_capital = 100.0
-risk_per_trade = 0.05  # เพิ่มความเสี่ยงต่อไม้เป็น 5% ของทุน เพื่อเร่งการเติบโต [Patch: Increase Risk]
+risk_per_trade = 0.1  # เพิ่มความเสี่ยงต่อไม้เป็น 10% ของทุน เพื่อเร่งการเติบโต
 max_drawdown_pct = 0.30
 partial_tp_ratio = 0.5
 cooldown_minutes = 0  # ยกเลิกช่วงพักการเทรด ไม่มี No-Trade Zone [Patch]
@@ -183,14 +184,12 @@ def calculate_trend_confirm(df, price_col='close'):
     return df
 
 def is_trending(df, i):
-    """ตรวจสอบว่าตลาดมีเทรนด์จริงหรือไม่"""
-    if i < 100:
+    """ตรวจสอบว่าตลาดมีเทรนด์จริงหรือไม่ (ปรับเงื่อนไขให้หลวมขึ้น)"""
+    if i < 50:
         return False
     ema_fast = df['ema_fast'].iloc[i]
     ema_slow = df['ema_slow'].iloc[i]
-    atr = df['atr'].iloc[i]
-    atr_med = df['atr'].rolling(100).median().iloc[i]
-    return (ema_fast > ema_slow) and (atr > atr_med)
+    return ema_fast > ema_slow
 
 def is_confirm_bar(df, i, direction):
     """ตรวจสอบว่าแท่งปัจจุบันเป็นแท่งยืนยันขาเข้าหรือไม่"""
@@ -387,9 +386,9 @@ def should_force_entry(row, last_entry_time, current_time, cooldown=180):
         return True
     return False
 
-def fallback_simple_signal(df, rsi_upper: float = 55, rsi_lower: float = 45):
+def fallback_simple_signal(df, rsi_upper: float = 0, rsi_lower: float = 100):
     """Assign basic entry signals when none are generated."""
-    logger.debug("Applying fallback simple signal")
+    logger.debug("Applying fallback simple signal (upper=%s, lower=%s)", rsi_upper, rsi_lower)
     df = df.copy()
     if 'macd_hist' not in df.columns:
         df = calculate_macd(df)
@@ -685,7 +684,8 @@ def run_backtest_cli():  # pragma: no cover
     qa_log_step("Indicators calculated")
     # === Generate entry signals using Multi-Timeframe SMC confirmation ===
     df = calculate_trend_confirm(df)  # [Patch] Add EMA Fast/Slow for is_trending()
-    df = generate_smart_signal(df)  # [Patch] Replaced old signal logic with SMC-based signals
+    # ปิดการใช้ SMC signal เพื่อลดความซับซ้อนและเพิ่มจำนวนสัญญาณ
+    # df = generate_smart_signal(df)
     df = fallback_simple_signal(df)  # [Patch] fallback to simple MACD/RSI signal
     if psutil is not None:
         ram_used = psutil.virtual_memory().used / (1024 ** 3)
@@ -696,16 +696,16 @@ def run_backtest_cli():  # pragma: no cover
     qa_log_step("Run backtest")
     initial_capital = 100.0
     capital = initial_capital
-    risk_per_trade = 0.05  # ความเสี่ยงต่อไม้ 5% ของทุน (เรียนรู้จากผลการเทรด/ปรับขนาดตามทุน) [Patch]
-    tp_multiplier = 2.0    # TP สุดท้าย 2 ATR จากจุดเข้า (2R) [Patch]
-    sl_multiplier = 1.0    # SL ที่ 1 ATR จากจุดเข้า (1R) [Patch]
+    risk_per_trade = 0.1  # เพิ่มความเสี่ยงต่อไม้เป็น 10% ของทุนเพื่อเพิ่มโอกาสทำกำไร
+    tp_multiplier = 0.5    # ปรับ TP ให้สั้นลงเพื่อปิดออเดอร์เร็วขึ้น
+    sl_multiplier = 0.5    # ปรับ SL ใกล้ขึ้นเพื่อให้ได้จำนวนเทรดมากขึ้น
     pip_size = 0.1         # 1 pip = $0.1 (ใช้สำหรับ trailing เล็กน้อย)
     spread = 0.50          # ลดสเปรดสมมุติลงให้สมเหตุสมผลกับตลาดจริง (~$0.5) [Patch]
     slippage = 0.05        # ค่า slippage คงที่
     commission_per_lot = 0.10
     lot_unit = 0.01
     trailing_atr_multiplier = 1.0   # ระยะ trailing SL = 1 * ATR [Patch: ATR-based Trailing]
-    drawdown_threshold = 0.20      # ระงับการเข้าออเดอร์ใหม่หากทุนลดลงมากกว่า 20% จากจุดสูงสุด (DD 20%) [Patch: OMS Kill-Switch]
+    drawdown_threshold = 1.0       # ปิดข้อจำกัด Drawdown เพื่อให้ทดสอบได้ต่อเนื่อง
     extreme_vol_factor = 2.0       # ไม่เข้าออเดอร์หาก ATR > 2 เท่าของ ATR เฉลี่ย [Patch]
 
     kill_switch_threshold = 50.0  # [Patch 1] Stop trading if equity falls below $50 (50% drawdown)
@@ -766,15 +766,7 @@ def run_backtest_cli():  # pragma: no cover
             if df['atr'].iat[i] > atr_rolling_mean[i] * extreme_vol_factor:
                 allow_reentry = False  # ไม่เข้าในแท่งที่ ATR พุ่งสูงเกิน 2 เท่าค่าเฉลี่ย [Patch: ATR Regime Filter]
             if row['entry_signal'] in ['buy', 'sell'] and not row.get('spike', False) and (i - last_entry_idx) > cooldown_bars and allow_reentry:
-                # กรองเฉพาะช่วงที่ตลาดมีเทรนด์จริง และมีแท่งยืนยันการเข้า
-                if not is_trending(df, i):
-                    continue
-                if not is_confirm_bar(df, i, row['entry_signal']):
-                    continue
-                # [Patch 4] Enter only during high-liquidity hours (13:00-22:00)
-                hour = row['timestamp'].hour
-                if hour < 13 or hour > 22:
-                    continue
+                # ลดข้อจำกัดเพื่อให้มีการเทรดมากขึ้น
                 if row['entry_signal'] == 'buy':
                     entry_price = row['close'] + spread + slippage
                     sl = entry_price - row['atr'] * sl_multiplier

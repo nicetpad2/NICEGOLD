@@ -226,8 +226,7 @@ class TestNicegoldExtra(unittest.TestCase):
     def test_run_backtest_cli_updated_params(self):
         import inspect
         src = inspect.getsource(nicegold.run_backtest_cli)
-        self.assertIn('risk_per_trade = 0.05', src)
-        self.assertIn('hour = row[\'timestamp\'].hour', src)
+        self.assertIn('risk_per_trade = 0.1', src)
 
     def test_run_backtest_cli_atr_usage(self):
         import inspect
@@ -503,6 +502,9 @@ class TestLoadCSVFunctions(unittest.TestCase):
             nicegold.load_csv_m1('dummy.csv')
             reader.assert_called_with('dummy.csv', low_memory=False)
 
+    def test_default_paths_relative(self):
+        self.assertFalse(nicegold.M1_PATH.startswith('/content'))
+
 
 class TestOptimizeMemory(unittest.TestCase):
     @unittest.skipUnless(pandas_available and numpy_available, 'requires pandas and numpy')
@@ -553,7 +555,6 @@ class TestTrendConfirmFunctions(unittest.TestCase):
         import inspect
         src = inspect.getsource(nicegold.run_backtest_cli)
         self.assertIn('is_trending', src)
-        self.assertIn('is_confirm_bar', src)
 
 
 class TestEnhancedRunBacktest(unittest.TestCase):
