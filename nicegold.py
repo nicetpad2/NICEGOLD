@@ -1,5 +1,9 @@
 import pandas as pd
 import numpy as np
+try:
+    import yaml
+except Exception:  # pragma: no cover - optional dependency
+    yaml = None
 
 try:
     from sklearn.ensemble import GradientBoostingClassifier
@@ -10,9 +14,21 @@ except Exception:  # pragma: no cover - optional dependency
     StandardScaler = None
     train_test_split = None
 
+CONFIG_PATH = "config.yaml"
+
+
+def load_config(path: str = CONFIG_PATH):
+    """Load configuration from YAML file"""
+    if yaml is None:
+        raise ImportError("yaml is required for load_config")
+    with open(path, "r") as f:
+        return yaml.safe_load(f)
+
 # === โหลดข้อมูล ===
-def load_data(file_path):
+def load_data(file_path=None):
     """อ่านไฟล์ CSV ที่มีคอลัมน์ Date (พ.ศ.) และ Timestamp แล้วแปลงเป็น datetime"""
+    if file_path is None:
+        file_path = "XAUUSD_M1.csv"
     df = pd.read_csv(file_path)
     df.columns = [c.lower() for c in df.columns]
     if 'date' not in df.columns or 'timestamp' not in df.columns:
@@ -30,6 +46,7 @@ def load_data(file_path):
         + df['timestamp'].astype(str)
     )
     df['timestamp'] = pd.to_datetime(datetime_str, format='%Y-%m-%d %H:%M:%S')
+    df['hour'] = df['timestamp'].dt.hour
     df = df.drop(columns=['date'])
     return df
 
@@ -285,40 +302,72 @@ def train_signal_model(df):
     return df
 
 
-def run_backtest(df):
+def run_backtest(df, cfg):
     """รันแบ็กเทสต์แบบง่ายสำหรับกลยุทธ์ ModernScalping"""
-    capital = 100.0
+    capital = cfg.get('initial_capital', 100.0)
+    peak_equity = capital
+    max_drawdown = 0.0
     trades = []
     position = None
     for i in range(20, len(df)):
         row = df.iloc[i]
+        if not (cfg.get('trade_start_hour', 0) <= row.get('hour', 0) <= cfg.get('trade_end_hour', 23)):
+            continue
         if position is None and row['entry_signal'] == 'buy':
             entry_price = row['close'] + 0.10
             sl = entry_price - row['atr']
-            tp1 = entry_price + row['atr'] * 0.8
-            tp2 = entry_price + row['atr'] * 2.0
-            lot = min(0.01, capital * 0.05 / max(entry_price - sl, 1e-6))
-            position = {'entry': entry_price, 'sl': sl, 'tp1': tp1, 'tp2': tp2, 'lot': lot, 'tp1_hit': False}
+            tp1 = entry_price + row['atr'] * cfg.get('tp1_mult', 0.8)
+            tp2 = entry_price + row['atr'] * cfg.get('tp2_mult', 2.0)
+            lot = min(0.01, capital * cfg.get('risk_per_trade', 0.05) / max(entry_price - sl, 1e-6))
+            position = {
+                'entry_time': row['timestamp'],
+                'entry': entry_price,
+                'sl': sl,
+                'tp1': tp1,
+                'tp2': tp2,
+                'lot': lot,
+                'tp1_hit': False,
+                'capital_before': capital,
+            }
         elif position:
             if not position['tp1_hit'] and row['high'] >= position['tp1']:
                 pnl = position['lot'] * (position['tp1'] - position['entry']) * 100
                 capital += pnl
                 position['tp1_hit'] = True
                 position['sl'] = position['entry']
-                trades.append({'exit': 'TP1', 'pnl': pnl, 'capital': capital, 'time': row['timestamp']})
+                trades.append({**position, 'exit': 'TP1', 'pnl': pnl, 'capital_after': capital, 'exit_time': row['timestamp']})
             elif row['low'] <= position['sl']:
                 pnl = -position['lot'] * (position['entry'] - position['sl']) * 100
                 capital += pnl
-                trades.append({'exit': 'SL', 'pnl': pnl, 'capital': capital, 'time': row['timestamp']})
+                trades.append({**position, 'exit': 'SL', 'pnl': pnl, 'capital_after': capital, 'exit_time': row['timestamp']})
                 position = None
             elif row['high'] >= position['tp2']:
                 pnl = position['lot'] * (position['tp2'] - position['entry']) * 100
                 capital += pnl
-                trades.append({'exit': 'TP2', 'pnl': pnl, 'capital': capital, 'time': row['timestamp']})
+                trades.append({**position, 'exit': 'TP2', 'pnl': pnl, 'capital_after': capital, 'exit_time': row['timestamp']})
                 position = None
-            if capital < 70:
+
+            drawdown = (peak_equity - capital) / peak_equity
+            if capital > peak_equity:
+                peak_equity = capital
+            else:
+                max_drawdown = max(max_drawdown, drawdown)
+
+            if capital < cfg.get('kill_switch_min', 70):
+                print("Kill switch triggered")
                 break
-    return pd.DataFrame(trades)
+
+    df_trades = pd.DataFrame(trades)
+    df_trades.to_csv('trade_log.csv', index=False)
+    print('Final Equity:', round(capital, 2))
+    print('Total Return:', capital - cfg.get('initial_capital', 100.0))
+    print('Total Trades:', len(df_trades))
+    if 'pnl' in df_trades.columns and not df_trades.empty:
+        print('Win Rate:', (df_trades['pnl'] > 0).mean())
+    else:
+        print('Win Rate: N/A (no trades)')
+    print('Max Drawdown:', round(max_drawdown * 100, 2), '%')
+    return df_trades
 
 # === Apply Strategy ===
 def run_backtest_cli():  # pragma: no cover
@@ -580,7 +629,10 @@ def run_backtest_cli():  # pragma: no cover
     df_trades = pd.DataFrame(trades)
     print("Final Equity:", round(capital, 2))
     print("Total Return: {:.2%}".format((capital - initial_capital) / initial_capital))
-    print("Winrate: {:.2%}".format((df_trades['pnl'] > 0).mean()))
+    if 'pnl' in df_trades.columns and not df_trades.empty:
+        print("Winrate: {:.2%}".format((df_trades['pnl'] > 0).mean()))
+    else:
+        print("Winrate: N/A (no trades)")
     print(df_trades.tail(10))
     if kill_switch_triggered:
         print("Kill switch activated: capital below threshold")
