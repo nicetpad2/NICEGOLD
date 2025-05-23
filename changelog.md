@@ -177,3 +177,7 @@
 ### Fixed
 - แก้ FutureWarning `fillna(method='bfill')`
 - แก้ NameError `current_drawdown` ใน `run_backtest_cli`
+## [v1.9.21] — 2025-06-21
+### Changed
+- ปรับปรุง `run_backtest_cli` ให้มี Partial TP และ Trailing Stop ตาม ATR
+- พิมพ์ผลสรุปรายการเทรดพร้อมจำนวนและเหตุผลเข้าออกออเดอร์

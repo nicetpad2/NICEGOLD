@@ -31,7 +31,7 @@ os.makedirs(TRADE_DIR, exist_ok=True)
 
 # === Default Parameters (Updated) ===
 initial_capital = 100.0
-risk_per_trade = 0.05  # ความเสี่ยงต่อไม้ 5% ของทุน (เพิ่มจาก 1% เดิมเพื่อเร่งการเติบโต) [Patch]
+risk_per_trade = 0.05  # เพิ่มความเสี่ยงต่อไม้เป็น 5% ของทุน เพื่อเร่งการเติบโต [Patch: Increase Risk]
 max_drawdown_pct = 0.30
 partial_tp_ratio = 0.5
 cooldown_minutes = 180
@@ -576,7 +576,7 @@ def run_backtest_cli():  # pragma: no cover
 # === Backtest ปรับปรุง: ถือไม้เดียว, TP:SL = 2:1 (ใช้ ATR) ===
     initial_capital = 100.0
     capital = initial_capital
-    risk_per_trade = 0.05  # เพิ่มความเสี่ยงต่อไม้เป็น 5% [Patch]
+    risk_per_trade = 0.05  # ความเสี่ยงต่อไม้ 5% ของทุน (เรียนรู้จากผลการเทรด/ปรับขนาดตามทุน) [Patch]
     tp_multiplier = 2.0    # TP สุดท้าย 2 ATR จากจุดเข้า (2R) [Patch]
     sl_multiplier = 1.0    # SL ที่ 1 ATR จากจุดเข้า (1R) [Patch]
     pip_size = 0.1         # 1 pip = $0.1 (ใช้สำหรับ trailing เล็กน้อย)
@@ -584,13 +584,13 @@ def run_backtest_cli():  # pragma: no cover
     slippage = 0.05        # ค่า slippage คงที่
     commission_per_lot = 0.10
     lot_unit = 0.01
-    trailing_atr_multiplier = 1.0   # ระยะ trailing SL ตาม ATR [Patch]
-    drawdown_threshold = 0.20      # หยุดเข้าออเดอร์ใหม่หาก drawdown สูงเกิน 20% [Patch]
+    trailing_atr_multiplier = 1.0   # ระยะ trailing SL = 1 * ATR [Patch: ATR-based Trailing]
+    drawdown_threshold = 0.20      # ระงับการเข้าออเดอร์ใหม่หากทุนลดลงมากกว่า 20% จากจุดสูงสุด (DD 20%) [Patch: OMS Kill-Switch]
     extreme_vol_factor = 2.0       # ไม่เข้าออเดอร์หาก ATR > 2 เท่าของ ATR เฉลี่ย [Patch]
 
     kill_switch_threshold = 50.0  # หยุดเทรดทั้งหมดหากทุนลดต่ำกว่า $50 (50% ของเริ่มต้น) [Patch]
     kill_switch_triggered = False
-    cooldown_bars = 1  # รออย่างน้อย 1 แท่ง (1 นาที) หลัง SL ก่อนเข้าใหม่ (Cool-down) [Patch]
+    cooldown_bars = 1    # ต้องรออย่างน้อย 1 แท่ง (1 นาที) หลัง Stop Loss ก่อนเข้าใหม่ (Cooldown) [Patch: Loss Cooldown]
     last_entry_idx = -cooldown_bars
 
     consecutive_loss = 0
@@ -612,22 +612,23 @@ def run_backtest_cli():  # pragma: no cover
         equity_curve.append({'timestamp': row['timestamp'], 'equity': capital})
 
         if i % 5000 == 0:
-            position = None
+            position = None  # รีเซ็ตสถานะทุก ๆ 5000 แท่ง (ประมาณรายเดือน) ป้องกันถือออเดอร์ข้ามช่วงเวลายาว [Patch]
 
         if row.get('spike_score', 0) > 0.75:
-            continue  # ข้ามแท่งที่ความผันผวนสูงผิดปกติ (anti-spike) [Patch]
+            continue  # ข้ามแท่งที่มีสัญญาณ "Spike" ความผันผวนสูงผิดปกติ (กรองสัญญาณหลอก) [Patch: Volatility Guard]
 
         if position is None:
             allow_reentry = True
+            # หลีกเลี่ยงการเข้าออเดอร์ทันทีหลังโดน SL (Cooldown)
             if prev_trade_result == 'SL' and (i - last_exit_idx) < cooldown_bars:
-                allow_reentry = False
-            current_drawdown = (peak_capital - capital) / peak_capital
+                allow_reentry = False  # ยังไม่ให้เข้าใหม่ทันทีหลังขาดทุน [Patch: Cooldown หลังแพ้]
+            # ป้องกัน Drawdown เกิน threshold
+            current_drawdown = (peak_capital - capital) / peak_capital if peak_capital > 0 else 0
             if current_drawdown > drawdown_threshold:
-                logger.debug(f"Skip entry due to high drawdown: {current_drawdown:.2%}")
-                allow_reentry = False
+                allow_reentry = False  # ระงับสัญญาณเข้า เนื่องจาก Drawdown เกิน 20% [Patch: DD OMS Trigger]
+            # กรองภาวะตลาดที่ผันผวนมากเกินไป (ATR สูงผิดปกติ)
             if df['atr'].iat[i] > atr_rolling_mean[i] * extreme_vol_factor:
-                logger.debug(f"Skip entry due to extreme volatility: ATR {df['atr'].iat[i]:.4f}")
-                allow_reentry = False
+                allow_reentry = False  # ไม่เข้าในแท่งที่ ATR พุ่งสูงเกิน 2 เท่าค่าเฉลี่ย [Patch: ATR Regime Filter]
             if row['entry_signal'] in ['buy', 'sell'] and not row['spike'] and (i - last_entry_idx) > cooldown_bars and allow_reentry:
                 # เข้าใหม่เฉพาะช่วงเวลาตลาดหลักที่มีสภาพคล่องสูง (13:00-22:00) [Patch]
                 hour = row['timestamp'].hour
@@ -647,31 +648,33 @@ def run_backtest_cli():  # pragma: no cover
                 distance = abs(entry_price - sl)
                 if distance < 1e-6:
                     continue
-                lot_size = min(risk_amount / distance, 0.3)
+                # คำนวณขนาดสัญญา (lot) ตามความเสี่ยงที่ยอมรับ และปรับตามสตรีคชนะ/แพ้
+                lot_size = min(risk_amount / distance, 0.30)
                 if consecutive_loss >= 2:
-                    lot_size *= recovery_multiplier
+                    lot_size *= recovery_multiplier  # แพ้ติดกันหลายครั้ง -> ลดขนาดไม้ลง (risk-off) [Patch]
                 if consecutive_win >= 2:
-                    lot_size *= win_streak_boost
+                    lot_size *= win_streak_boost    # ชนะติดกัน -> เพิ่มขนาดไม้ (ใช้กำไรเพิ่มพอร์ต) [Patch]
 
                 factor_by_streak = 1.0
                 if consecutive_loss >= 3:
-                    factor_by_streak *= 0.75
+                    factor_by_streak *= 0.75  # แพ้ต่อเนื่องนาน -> ลดเป้าหมายกำไรลง (เอาให้ออกได้) [Patch]
                 if consecutive_win >= 3:
-                    factor_by_streak *= 1.25
+                    factor_by_streak *= 1.25  # ชนะต่อเนื่องหลายไม้ -> เพิ่มเป้ากำไรให้เหมาะกับเทรนด์ [Patch]
                 tp = entry_price + (row['atr'] * tp_multiplier * factor_by_streak * (1 if position_type == 'long' else -1))
 
+                # ระบุเหตุผลการเข้าออเดอร์ (Log)
                 reason_components = []
                 wave_phase = row.get('Wave_Phase', '')
                 divergence = row.get('divergence', '')
                 if position_type == 'long':
-                    if str(wave_phase).startswith('W.') and str(divergence) == 'bullish' and row.get('macd_cross_up', False):
-                        reason_components.append(f"WavePhase {wave_phase} bullish divergence")
+                    if str(wave_phase).startswith('W.') and divergence == 'bullish' and row.get('macd_cross_up', False):
+                        reason_components.append(f"WavePhase {wave_phase} + bullish divergence")
                         reason_components.append("MACD cross up")
                     else:
                         reason_components.append("Bullish signal triggered")
                 else:
-                    if str(wave_phase).startswith('W.') and str(divergence) == 'bearish' and row.get('macd_cross_down', False):
-                        reason_components.append(f"WavePhase {wave_phase} bearish divergence")
+                    if str(wave_phase).startswith('W.') and divergence == 'bearish' and row.get('macd_cross_down', False):
+                        reason_components.append(f"WavePhase {wave_phase} + bearish divergence")
                         reason_components.append("MACD cross down")
                     else:
                         reason_components.append("Bearish signal triggered")
@@ -710,7 +713,7 @@ def run_backtest_cli():  # pragma: no cover
                 distance = abs(entry_price - sl)
                 if distance < 1e-6:
                     continue
-                lot_size = min(risk_amount / distance, 0.3)
+                lot_size = min(risk_amount / distance, 0.30)
                 if consecutive_loss >= 2:
                     lot_size *= recovery_multiplier
                 if consecutive_win >= 2:
@@ -727,14 +730,14 @@ def run_backtest_cli():  # pragma: no cover
                 wave_phase = row.get('Wave_Phase', '')
                 divergence = row.get('divergence', '')
                 if position_type == 'long':
-                    if str(wave_phase).startswith('W.') and str(divergence) == 'bullish' and row.get('macd_cross_up', False):
-                        reason_components.append(f"WavePhase {wave_phase} bullish divergence")
+                    if str(wave_phase).startswith('W.') and divergence == 'bullish' and row.get('macd_cross_up', False):
+                        reason_components.append(f"WavePhase {wave_phase} + bullish divergence")
                         reason_components.append("MACD cross up")
                     else:
                         reason_components.append("Bullish signal triggered")
                 else:
-                    if str(wave_phase).startswith('W.') and str(divergence) == 'bearish' and row.get('macd_cross_down', False):
-                        reason_components.append(f"WavePhase {wave_phase} bearish divergence")
+                    if str(wave_phase).startswith('W.') and divergence == 'bearish' and row.get('macd_cross_down', False):
+                        reason_components.append(f"WavePhase {wave_phase} + bearish divergence")
                         reason_components.append("MACD cross down")
                     else:
                         reason_components.append("Bearish signal triggered")
@@ -760,14 +763,15 @@ def run_backtest_cli():  # pragma: no cover
                 logger.info(f"Opened {position_type} position at {position['time']} - Entry: {position['entry']:.2f}, SL: {position['sl']:.2f}, TP: {position['tp']:.2f}, Lot: {position['lot_size']:.2f} | Reason: {reason_entry}")
         else:
             if position['type'] == 'long':
-                commission = (position['lot_size'] / lot_unit) * commission_per_lot  # [Patch G-Fix1] charged once, realistic
+                commission = (position['lot_size'] / lot_unit) * commission_per_lot
+                # Partial Take Profit หากราคาวิ่งไปทางกำไร 1R แล้วยังไม่เคย partial
                 if not position['tp1_hit'] and row['high'] >= position['entry'] + (position['entry'] - position['sl']):
-                    pnl = capital * risk_per_trade * 0.5
+                    pnl = capital * risk_per_trade * 0.5  # รับกำไรออกครึ่งหนึ่ง (0.5R) [Patch: Partial TP]
                     capital += pnl
                     peak_capital = max(peak_capital, capital)
-                    position['sl'] = position['entry']
+                    position['sl'] = position['entry']       # เลื่อน SL มาที่ทุน (Breakeven) [Patch: Move SL to BE]
                     position['tp1_hit'] = True
-                    logger.info(f"TP1 reached for {position['type']} at {position['tp']:.2f} - Capital: {capital:.2f}")
+                    logger.info(f"TP1 reached for {position['type']} at {position['time']} - Capital now {capital:.2f}")
                     trades.append({
                         **position,
                         'exit_time': row['timestamp'],
@@ -776,27 +780,29 @@ def run_backtest_cli():  # pragma: no cover
                         'commission': commission,
                         'capital': capital,
                         'exit': 'TP1',
+                        'reason_exit': 'Partial profit taken'
                     })
                 if row['high'] >= position['tp'] - pip_size * 0.5:
-                    position['sl'] = max(position['sl'], row['close'] - pip_size * 0.5)
-                # Trailing SL หลังจากย้าย SL มาที่ทุน (breakeven)
+                    position['sl'] = max(position['sl'], row['close'] - pip_size * 0.5)  # รัด SL เข้ามาใกล้ราคาปัจจุบัน [Patch: Tighten SL near TP]
+                # Trailing Stop หลัง TP1 ให้ SL ตามหลังราคาด้วย ATR
                 if position['tp1_hit']:
-                    new_sl = position['entry'] + (row['close'] - position['entry'] - row['atr'] * trailing_atr_multiplier if position['type']=='long' else position['entry'] - (position['entry'] - row['close']) + row['atr'] * trailing_atr_multiplier)
-                    if position['type'] == 'long':
-                        position['sl'] = max(position['sl'], new_sl)
-                    else:
-                        position['sl'] = min(position['sl'], new_sl)
-                # ตรวจสอบการออกออเดอร์ (SL/TP)
+                    new_sl = position['entry'] + ((row['close'] - position['entry']) - row['atr'] * trailing_atr_multiplier)
+                    position['sl'] = max(position['sl'], new_sl)  # เลื่อน SL ตามหลังราคาด้วย ATR [Patch: ATR Trailing Stop]
+                # เช็คเงื่อนไขการปิดออเดอร์
                 if row['low'] <= position['sl']:
                     exit_price = position['sl']
-                    direction = 1 if position['type'] == 'long' else -1
+                    direction = 1
                     effective_risk_amount = position['risk_amount'] * (0.5 if position.get('tp1_hit') else 1.0)
                     pnl_move = direction * (exit_price - position['entry']) / position['risk_price'] * effective_risk_amount
-                    pnl = pnl_move
-                    pnl -= commission
+                    pnl = pnl_move - commission
                     capital += pnl
                     peak_capital = max(peak_capital, capital)
-                    reason_exit = "Stopped out at breakeven" if abs(position['entry'] - exit_price) < 1e-9 else "Stop Loss hit"
+                    if position.get('tp1_hit') and abs(position['entry'] - exit_price) > 1e-6:
+                        reason_exit = "Trailing Stop hit"
+                    elif abs(position['entry'] - exit_price) < 1e-6:
+                        reason_exit = "Stopped out at breakeven"
+                    else:
+                        reason_exit = "Stop Loss hit"
                     trades.append({
                         **position,
                         'exit_time': row['timestamp'],
@@ -807,19 +813,24 @@ def run_backtest_cli():  # pragma: no cover
                         'exit': 'SL',
                         'reason_exit': reason_exit
                     })
-                    consecutive_loss += 1
-                    consecutive_win = 0
-                    prev_trade_result = 'SL'
+                    if pnl > 0:
+                        consecutive_loss = 0
+                        consecutive_win += 1
+                        prev_trade_result = 'TP'
+                    else:
+                        consecutive_loss += 1
+                        consecutive_win = 0
+                        prev_trade_result = 'SL'
                     last_exit_idx = i
                     position = None
                 elif row['high'] >= position['tp']:
                     exit_price = position['tp']
-                    direction = 1 if position['type'] == 'long' else -1
+                    direction = 1
                     effective_risk_amount = position['risk_amount'] * (0.5 if position.get('tp1_hit') else 1.0)
                     pnl_move = direction * (exit_price - position['entry']) / position['risk_price'] * effective_risk_amount
-                    pnl = pnl_move
-                    pnl -= commission
+                    pnl = pnl_move - commission
                     capital += pnl
+                    peak_capital = max(peak_capital, capital)
                     exit_label = 'TP2' if position['tp1_hit'] else 'TP'
                     reason_exit = "Final Take Profit hit"
                     trades.append({
@@ -838,81 +849,54 @@ def run_backtest_cli():  # pragma: no cover
                     last_exit_idx = i
                     position = None
             elif position['type'] == 'short':
-                commission = (position['lot_size'] / lot_unit) * commission_per_lot  # [Patch G-Fix1] charged once at exit only
+                # (ส่วนการจัดการ short position คล้าย long เพียงกลับทิศทาง เงื่อนไขเดียวกัน จึงขอย่อในที่นี้) 
+                commission = (position['lot_size'] / lot_unit) * commission_per_lot
                 if not position['tp1_hit'] and row['low'] <= position['entry'] - (position['sl'] - position['entry']):
                     pnl = capital * risk_per_trade * 0.5
                     capital += pnl
                     peak_capital = max(peak_capital, capital)
                     position['sl'] = position['entry']
                     position['tp1_hit'] = True
-                    logger.info(f"TP1 reached for {position['type']} at {position['tp']:.2f} - Capital: {capital:.2f}")
-                    trades.append({
-                        **position,
-                        'exit_time': row['timestamp'],
-                        'exit_price': position['entry'] - pip_size * sl_multiplier,
-                        'pnl': pnl,
-                        'commission': commission,
-                        'capital': capital,
-                        'exit': 'TP1',
-                    })
+                    trades.append({**position, 'exit_time': row['timestamp'], 'exit_price': position['entry'] - pip_size * sl_multiplier,
+                                   'pnl': pnl, 'commission': commission, 'capital': capital, 'exit': 'TP1', 'reason_exit': 'Partial profit taken'})
                 if row['low'] <= position['tp'] + pip_size * 0.5:
                     position['sl'] = min(position['sl'], row['close'] + pip_size * 0.5)
-                # Trailing SL หลังจากย้าย SL มาที่ทุน (breakeven)
                 if position['tp1_hit']:
-                    new_sl = position['entry'] + (row['close'] - position['entry'] - row['atr'] * trailing_atr_multiplier if position['type']=='long' else position['entry'] - (position['entry'] - row['close']) + row['atr'] * trailing_atr_multiplier)
-                    if position['type'] == 'long':
-                        position['sl'] = max(position['sl'], new_sl)
-                    else:
-                        position['sl'] = min(position['sl'], new_sl)
+                    new_sl = position['entry'] - ((position['entry'] - row['close']) - row['atr'] * trailing_atr_multiplier)
+                    position['sl'] = min(position['sl'], new_sl)
                 if row['high'] >= position['sl']:
                     exit_price = position['sl']
-                    direction = 1 if position['type'] == 'long' else -1
+                    direction = -1
                     effective_risk_amount = position['risk_amount'] * (0.5 if position.get('tp1_hit') else 1.0)
                     pnl_move = direction * (exit_price - position['entry']) / position['risk_price'] * effective_risk_amount
-                    pnl = pnl_move
-                    pnl -= commission
+                    pnl = pnl_move - commission
                     capital += pnl
-                    reason_exit = "Stopped out at breakeven" if abs(position['entry'] - exit_price) < 1e-9 else "Stop Loss hit"
-                    trades.append({
-                        **position,
-                        'exit_time': row['timestamp'],
-                        'exit_price': exit_price,
-                        'pnl': pnl,
-                        'commission': commission,
-                        'capital': capital,
-                        'exit': 'SL',
-                        'reason_exit': reason_exit
-                    })
-                    consecutive_loss += 1
-                    consecutive_win = 0
-                    prev_trade_result = 'SL'
-                    last_exit_idx = i
-                    position = None
+                    if position.get('tp1_hit') and abs(position['entry'] - exit_price) > 1e-6:
+                        reason_exit = "Trailing Stop hit"
+                    elif abs(position['entry'] - exit_price) < 1e-6:
+                        reason_exit = "Stopped out at breakeven"
+                    else:
+                        reason_exit = "Stop Loss hit"
+                    trades.append({**position, 'exit_time': row['timestamp'], 'exit_price': exit_price, 'pnl': pnl,
+                                   'commission': commission, 'capital': capital, 'exit': 'SL', 'reason_exit': reason_exit})
+                    if pnl > 0:
+                        consecutive_loss = 0; consecutive_win += 1; prev_trade_result = 'TP'
+                    else:
+                        consecutive_loss += 1; consecutive_win = 0; prev_trade_result = 'SL'
+                    last_exit_idx = i; position = None
                 elif row['low'] <= position['tp']:
                     exit_price = position['tp']
-                    direction = 1 if position['type'] == 'long' else -1
+                    direction = -1
                     effective_risk_amount = position['risk_amount'] * (0.5 if position.get('tp1_hit') else 1.0)
                     pnl_move = direction * (exit_price - position['entry']) / position['risk_price'] * effective_risk_amount
-                    pnl = pnl_move
-                    pnl -= commission
+                    pnl = pnl_move - commission
                     capital += pnl
                     exit_label = 'TP2' if position['tp1_hit'] else 'TP'
                     reason_exit = "Final Take Profit hit"
-                    trades.append({
-                        **position,
-                        'exit_time': row['timestamp'],
-                        'exit_price': exit_price,
-                        'pnl': pnl,
-                        'commission': commission,
-                        'capital': capital,
-                        'exit': exit_label,
-                        'reason_exit': reason_exit
-                    })
-                    consecutive_loss = 0
-                    consecutive_win += 1
-                    prev_trade_result = 'TP'
-                    last_exit_idx = i
-                    position = None
+                    trades.append({**position, 'exit_time': row['timestamp'], 'exit_price': exit_price, 'pnl': pnl,
+                                   'commission': commission, 'capital': capital, 'exit': exit_label, 'reason_exit': reason_exit})
+                    consecutive_loss = 0; consecutive_win += 1; prev_trade_result = 'TP'
+                    last_exit_idx = i; position = None
 
         if capital < kill_switch_threshold:
             kill_switch_triggered = True
@@ -922,11 +906,13 @@ def run_backtest_cli():  # pragma: no cover
     df_trades = pd.DataFrame(trades)
     print("Final Equity:", round(capital, 2))
     print("Total Return: {:.2%}".format((capital - initial_capital) / initial_capital))
-    if 'pnl' in df_trades.columns and not df_trades.empty:
-        print("Winrate: {:.2%}".format((df_trades['pnl'] > 0).mean()))
+    if not df_trades.empty:
+        win_rate = (df_trades['pnl'] > 0).mean()
+        print("Winrate: {:.2%}".format(win_rate))
+        print("Total Trades:", len(df_trades), "records (including partial exits)")
+        print(df_trades[['entry','exit','pnl','capital','reason_entry','reason_exit']].tail(5))
     else:
         print("Winrate: N/A (no trades)")
-    print(df_trades.tail(10))
     if kill_switch_triggered:
         print("Kill switch activated: capital below threshold")
 
