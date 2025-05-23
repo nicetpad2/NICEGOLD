@@ -463,6 +463,28 @@ class TestConvertCSV(unittest.TestCase):
         self.assertEqual(df['date'].tolist(), ['25670501', '25670502'])
 
 
+class TestLoadCSVFunctions(unittest.TestCase):
+    @unittest.skipUnless(pandas_available and numpy_available, 'requires pandas and numpy')
+    def test_load_csv_m15_timestamp_parsing(self):
+        csv_data = """Date,Timestamp,Open,High,Low,Close
+25670501,0:00:00,1,1,1,1
+25670501,0:15:00,1,1,1,1
+"""
+        df = nicegold.load_csv_m15(io.StringIO(csv_data))
+        self.assertNotIn('date', df.columns)
+        self.assertEqual(df['timestamp'].iloc[0], pd.Timestamp('2024-05-01 00:00:00'))
+
+    @unittest.skipUnless(pandas_available and numpy_available, 'requires pandas and numpy')
+    def test_load_csv_m1_timestamp_parsing(self):
+        csv_data = """Date,Timestamp,Open,High,Low,Close
+25660501,0:00:00,1,1,1,1
+25660501,0:01:00,1,1,1,1
+"""
+        df = nicegold.load_csv_m1(io.StringIO(csv_data))
+        self.assertNotIn('date', df.columns)
+        self.assertEqual(df['timestamp'].iloc[1], pd.Timestamp('2023-05-01 00:01:00'))
+
+
 class TestOptimizeMemory(unittest.TestCase):
     @unittest.skipUnless(pandas_available and numpy_available, 'requires pandas and numpy')
     def test_optimize_memory_downcast(self):
