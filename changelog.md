@@ -249,3 +249,8 @@
 - เพิ่ม `calculate_trend_confirm` ก่อนสร้างสัญญาณ SMC
 - แสดง RAM ที่ใช้ผ่าน logger เพื่อการตรวจสอบ QA
 
+
+## [v1.9.34] — 2025-07-04
+### Added
+- NICEGOLD Enterprise v1.1: OMS manager, relaxed entry, smart sizing, logging improvements
+
