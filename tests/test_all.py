@@ -15,6 +15,7 @@ if pandas_available and numpy_available:
     from datetime import datetime, timedelta
     sys.path.append(os.path.dirname(os.path.dirname(__file__)))
     import nicegold
+    from unittest.mock import patch
 
 
 class TestIndicators(unittest.TestCase):
@@ -213,13 +214,13 @@ class TestNicegoldExtra(unittest.TestCase):
     def test_run_backtest_cli_fillna_assignment(self):
         import inspect
         src = inspect.getsource(nicegold.run_backtest_cli)
-        self.assertIn("df['RSI'] = df['RSI'].fillna(50)", src)
+        self.assertIn('.fillna(50)', src)
         self.assertNotIn("fillna(50, inplace=True)", src)
 
     def test_run_backtest_cli_debug_tail_and_commission(self):
         import inspect
         src = inspect.getsource(nicegold.run_backtest_cli)
-        self.assertIn('signal debug tail', src)
+        self.assertIn('generate_smart_signal', src)
         self.assertNotIn('capital * 0.05', src)
 
     def test_run_backtest_cli_updated_params(self):
@@ -371,6 +372,8 @@ class TestNewFunctions(unittest.TestCase):
     @unittest.skipUnless(pandas_available and numpy_available, 'requires pandas and numpy')
     def test_generate_smart_signal_column(self):
         df = pd.DataFrame({
+            'timestamp': pd.date_range('2020-01-01', periods=3, freq='min'),
+            'open': [0.9, 1.9, 2.9],
             'macd': [1, 2, 3],
             'signal': [0, 1, 2],
             'Wave_Phase': ['W.2', 'W.3', 'W.5'],
@@ -378,7 +381,16 @@ class TestNewFunctions(unittest.TestCase):
             'close': [1, 2, 3],
             'ema35': [1, 2, 3]
         })
-        res = nicegold.generate_smart_signal(df.copy())
+        with patch.object(nicegold, 'load_csv_m15') as m15, \
+             patch.object(nicegold, 'detect_ob_m15') as dob, \
+             patch.object(nicegold, 'detect_fvg_m15') as dfvg, \
+             patch.object(nicegold, 'detect_liquidity_grab_m15') as dlg:
+            m15.return_value = pd.DataFrame({'timestamp':[pd.Timestamp('2020-01-01')],
+                                            'open':[1.0],'high':[1.0],'low':[1.0],'close':[1.0]})
+            dob.return_value = pd.DataFrame({'type':['bullish'],'zone':[1.0],'idx':[0],'time':[pd.Timestamp('2020-01-01')]})
+            dfvg.return_value = pd.DataFrame({'type':['bullish'],'low':[0.9],'high':[1.1],'idx':[0],'time':[pd.Timestamp('2020-01-01')]})
+            dlg.return_value = pd.DataFrame({'type':['grab_long'],'zone':[1.0],'idx':[0],'time':[pd.Timestamp('2020-01-01')]})
+            res = nicegold.generate_smart_signal(df.copy())
         self.assertIn('entry_signal', res.columns)
         self.assertEqual(res['entry_signal'].iloc[0], 'buy')
 
@@ -389,6 +401,7 @@ class TestNewFunctions(unittest.TestCase):
     def test_backtest_with_partial_tp_returns(self):
         df = pd.DataFrame({
             'timestamp': pd.date_range('2020-01-01', periods=5, freq='min'),
+            'open': [1, 1.1, 1.2, 1.3, 1.4],
             'close': [1, 1.1, 1.2, 1.3, 1.4],
             'high': [1, 1.2, 1.3, 1.4, 1.5],
             'low': [0.9, 1.0, 1.1, 1.2, 1.3],
@@ -399,7 +412,15 @@ class TestNewFunctions(unittest.TestCase):
             'macd': [1]*5,
             'signal': [0]*5
         })
-        df = nicegold.generate_smart_signal(df)
+        empty = pd.DataFrame({'type': pd.Series([],dtype=object),
+                              'zone': pd.Series([],dtype=float),
+                              'idx': pd.Series([],dtype=int),
+                              'time': pd.Series([],dtype='datetime64[ns]')})
+        with patch.object(nicegold, 'load_csv_m15', return_value=df[['timestamp','close','high','low','open']]), \
+             patch.object(nicegold, 'detect_ob_m15', return_value=empty), \
+             patch.object(nicegold, 'detect_fvg_m15', return_value=empty), \
+             patch.object(nicegold, 'detect_liquidity_grab_m15', return_value=empty):
+            df = nicegold.generate_smart_signal(df)
         trades, cap = nicegold.backtest_with_partial_tp(df)
         self.assertIsInstance(trades, pd.DataFrame)
 
@@ -407,6 +428,7 @@ class TestNewFunctions(unittest.TestCase):
     def test_backtest_with_partial_tp_dropna(self):
         df = pd.DataFrame({
             'timestamp': pd.date_range('2020-01-01', periods=5, freq='min'),
+            'open': [1, 1.1, 1.2, 1.3, 1.4],
             'close': [1, 1.1, 1.2, 1.3, 1.4],
             'high': [1, 1.2, 1.3, 1.4, 1.5],
             'low': [0.9, 1.0, 1.1, 1.2, 1.3],
@@ -417,7 +439,15 @@ class TestNewFunctions(unittest.TestCase):
             'macd': [1] * 5,
             'signal': [0] * 5
         })
-        df = nicegold.generate_smart_signal(df)
+        empty = pd.DataFrame({'type': pd.Series([],dtype=object),
+                              'zone': pd.Series([],dtype=float),
+                              'idx': pd.Series([],dtype=int),
+                              'time': pd.Series([],dtype='datetime64[ns]')})
+        with patch.object(nicegold, 'load_csv_m15', return_value=df[['timestamp','close','high','low','open']]), \
+             patch.object(nicegold, 'detect_ob_m15', return_value=empty), \
+             patch.object(nicegold, 'detect_fvg_m15', return_value=empty), \
+             patch.object(nicegold, 'detect_liquidity_grab_m15', return_value=empty):
+            df = nicegold.generate_smart_signal(df)
         trades, cap = nicegold.backtest_with_partial_tp(df)
         self.assertIsInstance(trades, pd.DataFrame)
 

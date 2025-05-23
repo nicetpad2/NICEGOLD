@@ -651,50 +651,16 @@ def run_backtest_cli():  # pragma: no cover
     # === สร้าง close, high, low เป็น lowercase ===
     df.rename(columns={'close': 'close', 'high': 'high', 'low': 'low'}, inplace=True)
 
-    # Calculate technical indicators and signals
-    df = calculate_macd(df)
-    df = detect_macd_divergence(df)
-    df = macd_cross_signal(df)
-    df = apply_ema_trigger(df)
-    df = calculate_spike_guard(df)
-    df = validate_divergence(df)
-    df = calculate_trend_confirm(df)
-    qa_log_step("Indicators calculated")
-    # Compute RSI (14-period) for momentum indication
-    df['RSI'] = df['close'].rolling(14).apply(
-        lambda x: 100 - 100 / (1 + (np.mean(np.clip(np.diff(x), 0, None)) /
-                                    ((np.mean(np.clip(-np.diff(x), 0, None))) + 1e-6))),
-        raw=False
-    )
-    df['RSI'] = df['RSI'].fillna(50)  # [Patch G-Fix1] fix chained assignment warning
-    logger.debug("RSI calculated")
-    # Compute short-term momentum Z-score (Gain_Z) over 10-bar returns
-    ret10 = df['close'].pct_change(10, fill_method=None)
-    df['Gain_Z'] = ((ret10 - ret10.rolling(60).mean()) / (ret10.rolling(60).std() + 1e-6)).fillna(0)
-    logger.debug("Gain_Z calculated")
+    # === Calculate technical indicators needed ===
     df['atr'] = (df['high'] - df['low']).rolling(14).mean().bfill()
-    logger.debug("ATR calculated")
-    # Label pattern signals: Breakout, Reversal, StrongTrend
-    df['Pattern_Label'] = ''
-    df.loc[(df['divergence'] == 'bearish') & (df['RSI'] > 55), 'Pattern_Label'] = 'Breakout'
-    df.loc[(df['divergence'] == 'bullish') & (df['RSI'] < 45), 'Pattern_Label'] = 'Reversal'
-    df.loc[(df['Pattern_Label'] == '') & (df['trend_confirm'] == 'up') & (df['RSI'] > 60), 'Pattern_Label'] = 'StrongTrend'
-    df.loc[(df['Pattern_Label'] == '') & (df['trend_confirm'] == 'down') & (df['RSI'] < 40), 'Pattern_Label'] = 'StrongTrend'
-    logger.debug("Pattern labels assigned")
-    df = label_wave_phase(df)
-
-    fold_param = {
-        0: {'gain_z_thresh': 0.3, 'rsi_thresh': 50},
-        1: {'gain_z_thresh': 0.25, 'rsi_thresh': 48},
-    }
-    current_fold = 1
-    param = fold_param.get(current_fold, {})
-    gain_z_th = param.get('gain_z_thresh', 0.3)
-    rsi_th = param.get('rsi_thresh', 50)
-    df = generate_entry_signal(df, gain_z_thresh=gain_z_th, rsi_thresh=rsi_th)
-    df = apply_wave_macd_cross_entry(df)
+    df['RSI'] = df['close'].rolling(14).apply(
+        lambda x: 100 - 100 / (1 + (np.mean(np.clip(np.diff(x), 0, None)) / (np.mean(np.clip(-np.diff(x), 0, None)) + 1e-6))),
+        raw=False,
+    ).fillna(50)
+    qa_log_step("Indicators calculated")
+    # === Generate entry signals using Multi-Timeframe SMC confirmation ===
+    df = generate_smart_signal(df)  # [Patch] Replaced old signal logic with SMC-based signals
     qa_log_step("Signals generated")
-    logger.debug(df[['timestamp', 'entry_signal', 'Wave_Phase', 'RSI', 'divergence']].tail(30))  # [Patch G-Fix1] signal debug tail
 
 # === Backtest ปรับปรุง: ถือไม้เดียว, TP:SL = 2:1 (ใช้ ATR) ===
     qa_log_step("Run backtest")
@@ -769,7 +735,7 @@ def run_backtest_cli():  # pragma: no cover
             # กรองภาวะตลาดที่ผันผวนมากเกินไป (ATR สูงผิดปกติ)
             if df['atr'].iat[i] > atr_rolling_mean[i] * extreme_vol_factor:
                 allow_reentry = False  # ไม่เข้าในแท่งที่ ATR พุ่งสูงเกิน 2 เท่าค่าเฉลี่ย [Patch: ATR Regime Filter]
-            if row['entry_signal'] in ['buy', 'sell'] and not row['spike'] and (i - last_entry_idx) > cooldown_bars and allow_reentry:
+            if row['entry_signal'] in ['buy', 'sell'] and not row.get('spike', False) and (i - last_entry_idx) > cooldown_bars and allow_reentry:
                 # กรองเฉพาะช่วงที่ตลาดมีเทรนด์จริง และมีแท่งยืนยันการเข้า
                 if not is_trending(df, i):
                     continue
@@ -817,13 +783,17 @@ def run_backtest_cli():  # pragma: no cover
                 wave_phase = row.get('Wave_Phase', '')
                 divergence = row.get('divergence', '')
                 if position_type == 'long':
-                    if str(wave_phase).startswith('W.') and divergence == 'bullish' and row.get('macd_cross_up', False):
+                    if row.get('LG_Bull', False) and (row.get('OB_Bull', False) or row.get('FVG_Bull', False)):
+                        reason_components.append("MTF-SMC OB+LG+ConfirmBar BUY")
+                    elif str(wave_phase).startswith('W.') and divergence == 'bullish' and row.get('macd_cross_up', False):
                         reason_components.append(f"WavePhase {wave_phase} + bullish divergence")
                         reason_components.append("MACD cross up")
                     else:
                         reason_components.append("Bullish signal triggered")
                 else:
-                    if str(wave_phase).startswith('W.') and divergence == 'bearish' and row.get('macd_cross_down', False):
+                    if row.get('LG_Bear', False) and (row.get('OB_Bear', False) or row.get('FVG_Bear', False)):
+                        reason_components.append("MTF-SMC OB+LG+ConfirmBar SELL")
+                    elif str(wave_phase).startswith('W.') and divergence == 'bearish' and row.get('macd_cross_down', False):
                         reason_components.append(f"WavePhase {wave_phase} + bearish divergence")
                         reason_components.append("MACD cross down")
                     else:
@@ -884,13 +854,17 @@ def run_backtest_cli():  # pragma: no cover
                 wave_phase = row.get('Wave_Phase', '')
                 divergence = row.get('divergence', '')
                 if position_type == 'long':
-                    if str(wave_phase).startswith('W.') and divergence == 'bullish' and row.get('macd_cross_up', False):
+                    if row.get('LG_Bull', False) and (row.get('OB_Bull', False) or row.get('FVG_Bull', False)):
+                        reason_components.append("MTF-SMC OB+LG+ConfirmBar BUY")
+                    elif str(wave_phase).startswith('W.') and divergence == 'bullish' and row.get('macd_cross_up', False):
                         reason_components.append(f"WavePhase {wave_phase} + bullish divergence")
                         reason_components.append("MACD cross up")
                     else:
                         reason_components.append("Bullish signal triggered")
                 else:
-                    if str(wave_phase).startswith('W.') and divergence == 'bearish' and row.get('macd_cross_down', False):
+                    if row.get('LG_Bear', False) and (row.get('OB_Bear', False) or row.get('FVG_Bear', False)):
+                        reason_components.append("MTF-SMC OB+LG+ConfirmBar SELL")
+                    elif str(wave_phase).startswith('W.') and divergence == 'bearish' and row.get('macd_cross_down', False):
                         reason_components.append(f"WavePhase {wave_phase} + bearish divergence")
                         reason_components.append("MACD cross down")
                     else:
@@ -1143,16 +1117,18 @@ def run_backtest_cli():  # pragma: no cover
 
 
 def generate_smart_signal(df):
-    """สร้างสัญญาณเข้าซื้อแบบให้คะแนนหลายเงื่อนไข"""
-    logger.debug("Generating smart signal")
-    df = df.copy()
-    df['signal_score'] = 0
-    df['signal_score'] += (df['macd'] > df['signal']).astype(int)
-    df['signal_score'] += df['Wave_Phase'].isin(['W.2', 'W.3', 'W.5', 'W.B']).astype(int)
-    df['signal_score'] += (df['RSI'] > 50).astype(int)
-    df['signal_score'] += ((df['close'] >= df['ema35'] * 0.995) & (df['close'] <= df['ema35'] * 1.005)).astype(int)
-    df['entry_signal'] = np.where(df['signal_score'] >= entry_signal_threshold, 'buy', None)
-    logger.debug("Smart signal column added")
+    """สร้างสัญญาณเข้าซื้อแบบยืนยันโซน SMC หลายเวลา"""
+    logger.debug("Smart signal: detecting M15 SMC zones")
+    df_m15 = load_csv_m15()
+    ob_df = detect_ob_m15(df_m15)
+    fvg_df = detect_fvg_m15(df_m15)
+    lg_df = detect_liquidity_grab_m15(df_m15)
+    df = align_mtf_zones(df.copy(), ob_df, fvg_df, lg_df)
+    logger.debug("M15 zones aligned to M1")
+    buy_cond = ((df['OB_Bull'] | df['FVG_Bull']) & df['LG_Bull'] & (df['close'] > df['open']))
+    sell_cond = ((df['OB_Bear'] | df['FVG_Bear']) & df['LG_Bear'] & (df['close'] < df['open']))
+    df['entry_signal'] = np.where(buy_cond, 'buy', np.where(sell_cond, 'sell', None))
+    logger.debug("Entry signals set (buy/sell) based on MTF SMC criteria")
     return df
 
 
@@ -1346,7 +1322,7 @@ def align_mtf_zones(df_m1: pd.DataFrame, ob_df: pd.DataFrame, fvg_df: pd.DataFra
 
 
 def is_mtf_smc_entry(row: pd.Series):
-    """Determine entry signal from mapped SMC zones"""
+    """Determine entry signal from mapped SMC zones (unused after vectorized implementation)"""
     if row['OB_Bull'] or row['FVG_Bull']:
         if row['LG_Bull'] and row['close'] > row['open']:
             return 'buy'

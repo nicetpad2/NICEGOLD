@@ -210,3 +210,9 @@
 - เพิ่มชุดฟังก์ชัน SMC Multi-Timeframe และตัวช่วยตรวจจับโซน
 - ฟังก์ชันใหม่ `detect_order_block`, `detect_fvg`, `detect_liquidity_grab`, `is_smc_entry`
 
+## [v1.9.27] — 2025-06-27
+### Changed
+- ปรับ `run_backtest_cli` ใช้สัญญาณแบบ SMC Multi-Timeframe
+- ปรับ `generate_smart_signal` ให้โหลดข้อมูล M15 และแมพโซน OB/FVG/Liquidity Grab
+- เพิ่มเหตุผลการเข้าออเดอร์แบบ SMC ในบันทึกเทรด
+

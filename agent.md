@@ -2,7 +2,7 @@
 
 
 
-**Version:** v1.9.24
+**Version:** v1.9.27
 
 
 
@@ -122,4 +122,8 @@ agent.export_log(result_df, path="realistic_trade_log.csv")
 ### 📝 Patch v1.9.26
 - เพิ่มชุดฟังก์ชัน SMC Multi-Timeframe (OB/FVG/Liquidity Grab)
 - เพิ่มฟังก์ชัน `detect_order_block`, `detect_fvg`, `detect_liquidity_grab`, `is_smc_entry`
+
+### 📝 Patch v1.9.27
+- ปรับปรุง `generate_smart_signal` ให้ใช้ข้อมูล M15 และยืนยันโซน SMC
+- ปรับ `run_backtest_cli` ให้ใช้สัญญาณ SMC พร้อมเหตุผลเข้าออเดอร์ใหม่
 
