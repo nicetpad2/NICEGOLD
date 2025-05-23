@@ -50,6 +50,8 @@ def load_data(path):
             year.astype(str) + '-' + month + '-' + day + ' ' + df['timestamp'],
             format='%Y-%m-%d %H:%M:%S'
         )
+    elif 'timestamp' in df.columns:
+        df['timestamp'] = pd.to_datetime(df['timestamp'])
     df = df.sort_values('timestamp').reset_index(drop=True)
     return df
 
@@ -80,21 +82,39 @@ def calc_indicators(df):
     df['adx'] = dx.rolling(adx_period).mean()
     return df
 
+
+def is_strong_trend(df, i):
+    """Check if strong trend using rolling EMA and ADX."""
+    if i < trend_lookback * 2:
+        return False
+    trend = (
+        (df['ema_fast'].iloc[i - trend_lookback + 1:i + 1] > df['ema_slow'].iloc[i - trend_lookback + 1:i + 1]).all()
+        or (df['ema_fast'].iloc[i - trend_lookback + 1:i + 1] < df['ema_slow'].iloc[i - trend_lookback + 1:i + 1]).all()
+    )
+    adx = df['adx'].iloc[i] > adx_thresh
+    atr_high = df['atr'].iloc[i] > df['atr'].rolling(1000).median().iloc[i] * 1.2
+    return trend and (adx or atr_high)
+
 def smart_entry_signal(df):
     logger.info("[Patch] Vectorized entry signal (trend+min SL guard+relax+force entry)")
     df = df.copy()
     df['entry_signal'] = None
 
     # [Patch] 1. Relax ATR/ADX Guard (และกรองเฉพาะช่วงเวลาสำคัญ)
+    session_mask = True
+    if 'timestamp' in df.columns:
+        ts = pd.to_datetime(df['timestamp'])
+        session_mask = (
+            (ts.dt.hour >= trade_start_hour) & (ts.dt.hour < trade_end_hour)
+        )
     mask_valid = (
-        (df['atr'] > min_sl_dist * 0.7) &
-        (df['adx'] > adx_thresh)
-        & (df['timestamp'].dt.hour >= trade_start_hour)
-        & (df['timestamp'].dt.hour < trade_end_hour)
+        (df['atr'] > min_sl_dist * 0.7)
+        & (df['adx'] > adx_thresh)
+        & session_mask
     )
 
-    # [Patch] 2. Rolling trend mask (trend สั้นลง 7 bar)
-    n_trend = 7
+    # [Patch] 2. Rolling trend mask (trend 15 bar for stability)
+    n_trend = 15
     trend_up = (
         (df['ema_fast'] > df['ema_slow'])
         .rolling(n_trend, min_periods=n_trend)
@@ -110,27 +130,29 @@ def smart_entry_signal(df):
 
     # [Patch] 3. RSI + multi-timeframe + relax wick filter (ผ่านมากขึ้น)
     def relax_wick(row):
-        price_range = max(row['high'] - row['low'], 1e-6)
-        upper_wick = (row['high'] - row['close']) / price_range
-        lower_wick = (row['close'] - row['low']) / price_range
-        # [Patch] Relax ให้ Wick ถึง 80% ผ่านได้
-        return upper_wick < 0.80 and lower_wick < 0.80
+        if {'high', 'low', 'close'}.issubset(row.index):
+            price_range = max(row['high'] - row['low'], 1e-6)
+            upper_wick = (row['high'] - row['close']) / price_range
+            lower_wick = (row['close'] - row['low']) / price_range
+            return upper_wick < 0.80 and lower_wick < 0.80
+        return True
 
+    htf_ok_long = True
+    htf_ok_short = True
+    if 'ema_fast_htf' in df.columns and 'ema_slow_htf' in df.columns:
+        htf_ok_long = df['ema_fast_htf'] > df['ema_slow_htf']
+        htf_ok_short = df['ema_fast_htf'] < df['ema_slow_htf']
     entry_long = (
-        mask_valid & trend_up & (df['rsi'] > 51) &
-        (df['ema_fast_htf'] > df['ema_slow_htf']) &
-        df.apply(relax_wick, axis=1)
+        mask_valid & trend_up & (df['rsi'] > 51) & htf_ok_long & df.apply(relax_wick, axis=1)
     )
     entry_short = (
-        mask_valid & trend_dn & (df['rsi'] < 49) &
-        (df['ema_fast_htf'] < df['ema_slow_htf']) &
-        df.apply(relax_wick, axis=1)
+        mask_valid & trend_dn & (df['rsi'] < 49) & htf_ok_short & df.apply(relax_wick, axis=1)
     )
     df.loc[entry_long, 'entry_signal'] = 'buy'
     df.loc[entry_short, 'entry_signal'] = 'sell'
 
     # [Patch] 4. Force Entry หากไม่มี signal เกิน force_entry_gap bar
-    last_entry = -force_entry_gap
+    last_entry = 0
     for i in range(len(df)):
         if pd.notna(df['entry_signal'].iloc[i]):
             last_entry = i
@@ -142,7 +164,10 @@ def smart_entry_signal(df):
                 else:
                     df.at[i, 'entry_signal'] = 'sell'
                 last_entry = i
-                logger.info("[Patch] Force Entry at %s", df['timestamp'].iloc[i])
+                if 'timestamp' in df.columns:
+                    logger.info("[Patch] Force Entry at %s", df['timestamp'].iloc[i])
+                else:
+                    logger.info("[Patch] Force Entry at index %s", i)
 
     logger.info(
         "[Patch] Entry signal counts: buy=%d, sell=%d",
