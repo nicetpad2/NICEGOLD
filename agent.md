@@ -1,14 +1,15 @@
 # 🧠 agent.md — Gold AI: Elliott-MACD Realistic QA Agent
-**Version:** v1.8.0
-**Last updated:** 2025-05-31
+**Version:** v1.9.1
+**Last updated:** 2025-06-02
 **Maintainer:** AI Studio QA / Dev Agent System  
 
 ## 📌 Agent Role: `elliott_macd_backtest_agent`
 
 ### 🧭 Objective:
-This agent runs **realistic backtests** on XAUUSD M1 historical data using:
+-This agent runs **realistic backtests** on XAUUSD M1 historical data using:
 - **Elliott Wave-based Trend Context**
 - **MACD Divergence + EMA35 Trigger**
+- **ModernScalpingXAUUSD v1.0 (ML-based Scalping, integrated in main module)**
 - Real-world trading constraints:
   - Spread (80 points)
   - Slippage
