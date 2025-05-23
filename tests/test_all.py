@@ -1,0 +1,304 @@
+import unittest
+import importlib.util
+
+pandas_available = importlib.util.find_spec('pandas') is not None
+numpy_available = importlib.util.find_spec('numpy') is not None
+sklearn_available = importlib.util.find_spec('sklearn') is not None
+matplotlib_available = importlib.util.find_spec('matplotlib') is not None
+
+if pandas_available and numpy_available:
+    import pandas as pd
+    import numpy as np
+    import io
+    import os
+    import sys
+    from datetime import datetime, timedelta
+    sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+    import nicegold
+
+
+class TestIndicators(unittest.TestCase):
+    @unittest.skipUnless(pandas_available and numpy_available, 'requires pandas and numpy')
+    def test_calculate_macd_columns(self):
+        df = pd.DataFrame({'close': [1, 2, 3, 4, 5]})
+        result = nicegold.calculate_macd(df.copy())
+        self.assertIn('macd', result.columns)
+        self.assertIn('signal', result.columns)
+        self.assertIn('macd_hist', result.columns)
+
+    @unittest.skipUnless(pandas_available and numpy_available, 'requires pandas and numpy')
+    def test_generate_entry_signal_column(self):
+        df = pd.DataFrame({'close': [1, 2, 3], 'high': [1, 2, 3], 'low': [1, 2, 3]})
+        df = nicegold.calculate_macd(df.copy())
+        df = nicegold.detect_macd_divergence(df)
+        df = nicegold.macd_cross_signal(df)
+        df = nicegold.apply_ema_trigger(df)
+        df = nicegold.calculate_spike_guard(df)
+        df = nicegold.validate_divergence(df)
+        df = nicegold.generate_entry_signal(df)
+        self.assertIn('entry_signal', df.columns)
+        self.assertIn('spike_score', df.columns)
+
+    @unittest.skipUnless(pandas_available and numpy_available, 'requires pandas and numpy')
+    def test_trend_confirm_column(self):
+        df = pd.DataFrame({'close': [1, 2, 3]})
+        df = nicegold.calculate_trend_confirm(df.copy())
+        self.assertIn('trend_confirm', df.columns)
+
+    @unittest.skipUnless(pandas_available and numpy_available, 'requires pandas and numpy')
+    def test_wave_phase_column(self):
+        df = pd.DataFrame({
+            'close': [1, 2, 3],
+            'high': [1, 2, 3],
+            'low': [1, 2, 3],
+            'RSI': [60, 60, 60],
+            'Pattern_Label': ['Breakout', 'Breakout', 'Breakout'],
+        })
+        df = nicegold.calculate_macd(df.copy())
+        df = nicegold.detect_macd_divergence(df)
+        df = nicegold.label_wave_phase(df)
+        self.assertIn('Wave_Phase', df.columns)
+
+    @unittest.skipUnless(pandas_available and numpy_available, 'requires pandas and numpy')
+    def test_detect_elliott_wave_phase_column(self):
+        df = pd.DataFrame({
+            'close': [1, 2, 1, 3, 1, 4, 1],
+            'RSI': [40, 60, 40, 60, 40, 60, 40],
+            'divergence': ['bullish', 'bearish', 'bullish', 'bearish', 'bullish', 'bearish', 'bullish'],
+        })
+        df = nicegold.detect_elliott_wave_phase(df)
+        self.assertIn('Wave_Phase', df.columns)
+
+    @unittest.skipUnless(pandas_available and numpy_available, 'requires pandas and numpy')
+    def test_generate_entry_signal_wave_enhanced_column(self):
+        df = pd.DataFrame({
+            'close': [1, 2, 3, 4],
+            'RSI': [60, 60, 60, 60],
+            'ema35': [1, 2, 3, 4],
+            'divergence': ['bullish', 'bullish', 'bullish', 'bullish'],
+            'Wave_Phase': ['W.2', 'W.3', 'W.5', 'W.B']
+        })
+        df = nicegold.generate_entry_signal_wave_enhanced(df)
+        self.assertIn('entry_signal', df.columns)
+
+    @unittest.skipUnless(pandas_available and numpy_available, 'requires pandas and numpy')
+    def test_generate_entry_score_signal_column(self):
+        df = pd.DataFrame({
+            'close': [1, 2, 3],
+            'ema35': [1, 2, 3],
+            'RSI': [55, 55, 55],
+            'divergence': ['bullish', 'bullish', 'bullish'],
+            'Wave_Phase': ['W.2', 'W.3', 'W.5']
+        })
+        df = nicegold.generate_entry_score_signal(df)
+        self.assertIn('entry_score', df.columns)
+        self.assertIn('entry_signal', df.columns)
+
+
+class TestNicegoldExtra(unittest.TestCase):
+    @unittest.skipUnless(pandas_available and numpy_available, 'requires pandas and numpy')
+    def test_detect_macd_divergence_values(self):
+        df = pd.DataFrame({
+            'close': [1, 2, 0.5, 2, 3, 4],
+            'macd_hist': [0, -1, 1, -2, 2, -3]
+        })
+        res = nicegold.detect_macd_divergence(df.copy())
+        self.assertIn('bullish', res['divergence'].tolist())
+        self.assertIn('bearish', res['divergence'].tolist())
+
+    @unittest.skipUnless(pandas_available and numpy_available, 'requires pandas and numpy')
+    def test_generate_entry_signal_full(self):
+        df = pd.DataFrame({
+            'Gain_Z': [0.5, -0.5, 0.1, -0.1],
+            'RSI': [60, 40, 55, 45],
+            'Pattern_Label': ['Breakout', 'Reversal', 'Breakout', 'Reversal'],
+            'divergence': ['bullish', 'bearish', 'bullish', 'bearish'],
+            'ema_touch': [True, True, True, True],
+            'trend_confirm': ['up', 'down', 'up', 'down']
+        })
+        res = nicegold.generate_entry_signal(df.copy())
+        self.assertEqual(res['entry_signal'].tolist(), ['buy', 'sell', 'buy', 'sell'])
+
+    @unittest.skipUnless(pandas_available and numpy_available, 'requires pandas and numpy')
+    def test_label_wave_phase_branches(self):
+        df = pd.DataFrame({
+            'divergence': ['bearish', 'bullish'],
+            'RSI': [60, 40],
+            'Pattern_Label': ['Breakout', 'Reversal']
+        })
+        result = nicegold.label_wave_phase(df.copy())
+        self.assertIn('W.5', result['Wave_Phase'].tolist())
+        self.assertIn('W.B', result['Wave_Phase'].tolist())
+
+    @unittest.skipUnless(pandas_available and numpy_available, 'requires pandas and numpy')
+    def test_detect_elliott_wave_phase_reset(self):
+        close = [1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 2]
+        df = pd.DataFrame({
+            'close': close,
+            'RSI': [40, 60] * 6,
+            'divergence': ['bullish', 'bearish'] * 6
+        })
+        result = nicegold.detect_elliott_wave_phase(df)
+        self.assertGreaterEqual(list(result['Wave_Phase']).count('W.1'), 2)
+
+    @unittest.skipUnless(pandas_available and numpy_available, 'requires pandas and numpy')
+    def test_should_force_entry(self):
+        row = {
+            'entry_signal': None,
+            'spike_score': 0.7,
+            'Gain_Z': 0.6,
+            'Pattern_Label': 'Breakout'
+        }
+        last_entry = datetime(2020, 1, 1, 0, 0, 0)
+        current_time = last_entry + timedelta(minutes=300)
+        self.assertTrue(nicegold.should_force_entry(row, last_entry, current_time))
+        current_time_short = last_entry + timedelta(minutes=100)
+        self.assertFalse(nicegold.should_force_entry(row, last_entry, current_time_short))
+
+    @unittest.skipUnless(pandas_available and numpy_available, 'requires pandas and numpy')
+    def test_should_force_entry_branches(self):
+        row = {'entry_signal': 'buy'}
+        now = datetime.now()
+        self.assertFalse(nicegold.should_force_entry(row, now - timedelta(minutes=500), now))
+
+        row = {
+            'entry_signal': None,
+            'spike_score': 0.1,
+            'Gain_Z': 0.1,
+            'Pattern_Label': 'Breakout'
+        }
+        self.assertFalse(nicegold.should_force_entry(row, now - timedelta(minutes=500), now))
+
+    @unittest.skipUnless(pandas_available and numpy_available, 'requires pandas and numpy')
+    def test_apply_wave_macd_cross_entry(self):
+        df = pd.DataFrame({
+            'entry_signal': [None] * 5,
+            'Wave_Phase': ['W.1', 'W.2', 'W.B', 'W.5', 'W.2'],
+            'divergence': ['bullish', 'bullish', 'bullish', 'bearish', 'bullish'],
+            'macd_cross_up': [False, True, True, False, True],
+            'macd_cross_down': [False, False, False, True, False],
+            'RSI': [50, 50, 50, 50, 50],
+            'close': [1, 1, 1, 1, 1],
+            'ema35': [1, 1, 1, 1, 1]
+        })
+        result = nicegold.apply_wave_macd_cross_entry(df.copy())
+        self.assertEqual(result['entry_signal'].tolist()[2:], ['buy', 'sell', 'buy'])
+
+    @unittest.skipUnless(pandas_available and numpy_available, 'requires pandas and numpy')
+    def test_load_data_timestamp_parsing(self):
+        csv_data = """Date,Timestamp,Open,High,Low,Close,Volume
+25630501,0:00:00,1,1,1,1,0
+25630501,0:15:00,1,1,1,1,0
+"""
+        df = nicegold.load_data(io.StringIO(csv_data))
+        self.assertEqual(df['timestamp'].iloc[0], pd.Timestamp('2020-05-01 00:00:00'))
+        self.assertEqual(df['timestamp'].iloc[1], pd.Timestamp('2020-05-01 00:15:00'))
+
+    def test_run_backtest_cli_path(self):
+        import inspect
+        source = inspect.getsource(nicegold.run_backtest_cli)
+        self.assertIn('/content/drive/MyDrive/NICEGOLD/XAUUSD_M1.csv', source)
+
+
+class TestModernScalping(unittest.TestCase):
+    @unittest.skipUnless(pandas_available and numpy_available and sklearn_available, 'requires pandas, numpy, sklearn')
+    def test_compute_features_columns(self):
+        df = pd.DataFrame({
+            'close': np.arange(1, 30, dtype=float),
+            'high': np.arange(1, 30, dtype=float) + 0.1,
+            'low': np.arange(1, 30, dtype=float) - 0.1,
+            'timestamp': pd.date_range('2020-01-01', periods=29, freq='T')
+        })
+        res = nicegold.compute_features(df)
+        for col in ['rsi', 'atr', 'trend']:
+            self.assertIn(col, res.columns)
+
+    @unittest.skipUnless(pandas_available and numpy_available and sklearn_available, 'requires pandas, numpy, sklearn')
+    def test_train_signal_model(self):
+        df = pd.DataFrame({
+            'close': np.linspace(1, 2, 60),
+            'high': np.linspace(1, 2, 60) + 0.1,
+            'low': np.linspace(1, 2, 60) - 0.1,
+            'timestamp': pd.date_range('2020-01-01', periods=60, freq='T')
+        })
+        df = nicegold.compute_features(df)
+        res = nicegold.train_signal_model(df)
+        self.assertIn('signal_prob', res.columns)
+        self.assertIn('entry_signal', res.columns)
+
+    @unittest.skipUnless(pandas_available and numpy_available and sklearn_available, 'requires pandas, numpy, sklearn')
+    def test_run_backtest_returns_dataframe(self):
+        df = pd.DataFrame({
+            'close': np.linspace(1, 2, 80),
+            'high': np.linspace(1, 2, 80) + 0.1,
+            'low': np.linspace(1, 2, 80) - 0.1,
+            'timestamp': pd.date_range('2020-01-01', periods=80, freq='T')
+        })
+        df = nicegold.compute_features(df)
+        df = nicegold.train_signal_model(df)
+        cfg = {
+            'initial_capital': 100.0,
+            'risk_per_trade': 0.05,
+            'tp1_mult': 0.8,
+            'tp2_mult': 2.0,
+            'trade_start_hour': 0,
+            'trade_end_hour': 23,
+            'kill_switch_min': 70,
+        }
+        trades = nicegold.run_backtest(df, cfg)
+        self.assertIsInstance(trades, pd.DataFrame)
+
+    @unittest.skipUnless(pandas_available and numpy_available and sklearn_available, 'requires pandas, numpy, sklearn')
+    def test_load_config_and_time_filter(self):
+        cfg = nicegold.load_config() if hasattr(nicegold, 'load_config') else {
+            'trade_start_hour': 2,
+            'trade_end_hour': 3,
+            'initial_capital': 100.0,
+            'risk_per_trade': 0.05,
+            'tp1_mult': 0.8,
+            'tp2_mult': 2.0,
+            'kill_switch_min': 70,
+        }
+
+        df = pd.DataFrame({
+            'close': np.linspace(1, 2, 80),
+            'high': np.linspace(1, 2, 80) + 0.1,
+            'low': np.linspace(1, 2, 80) - 0.1,
+            'timestamp': pd.date_range('2020-01-01', periods=80, freq='T')
+        })
+        df = nicegold.compute_features(df)
+        df['entry_signal'] = 'buy'
+        df['hour'] = df['timestamp'].dt.hour
+        cfg['trade_start_hour'] = 2
+        cfg['trade_end_hour'] = 3
+        trades = nicegold.run_backtest(df, cfg)
+        self.assertEqual(len(trades), 0)
+
+
+class TestWalkForward(unittest.TestCase):
+    @unittest.skipUnless(pandas_available and numpy_available and sklearn_available and matplotlib_available,
+                         'requires pandas, numpy, sklearn, matplotlib')
+    def test_walk_forward_and_plot(self):
+        df = pd.DataFrame({
+            'close': np.linspace(1, 2, 1500),
+            'high': np.linspace(1, 2, 1500) + 0.1,
+            'low': np.linspace(1, 2, 1500) - 0.1,
+            'timestamp': pd.date_range('2020-01-01', periods=1500, freq='T')
+        })
+        cfg = {
+            'initial_capital': 100.0,
+            'risk_per_trade': 0.05,
+            'tp1_mult': 0.8,
+            'tp2_mult': 2.0,
+            'trade_start_hour': 0,
+            'trade_end_hour': 23,
+            'kill_switch_min': 70,
+        }
+        result = nicegold.walk_forward_test(df, cfg, fold_days=1)
+        self.assertIsInstance(result, pd.DataFrame)
+        self.assertTrue(os.path.exists('trade_plot.png'))
+        os.remove('trade_plot.png')
+
+
+if __name__ == '__main__':  # pragma: no cover
+    unittest.main()

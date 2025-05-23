@@ -81,3 +81,11 @@
 - Configurable parameters via `config.yaml`
 - Trade time filter (13:00–22:00 UTC)
 - Trade log export with drawdown tracking
+
+## [v1.9.4] — 2025-06-05
+### Added
+- Patch G33.3: Trade visualization plot and walk-forward validation helper
+
+## [v1.9.5] — 2025-06-06
+### Changed
+- Combined all unit tests into a single `test_all.py` for easier maintenance
