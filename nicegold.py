@@ -239,14 +239,12 @@ def generate_entry_signal(df, gain_z_thresh=0.3, rsi_thresh=50):
     hybrid_buy = (
         (df.get('divergence') == 'bullish') &
         (rsi > 52) &
-        pattern.isin(['Breakout', 'Reversal']) &
         df.get('ema_touch', False) &
         (df.get('trend_confirm') == 'up')
     )
     hybrid_sell = (
         (df.get('divergence') == 'bearish') &
         (rsi < 48) &
-        pattern.isin(['Breakout', 'Reversal']) &
         df.get('ema_touch', False) &
         (df.get('trend_confirm') == 'down')
     )
@@ -335,7 +333,7 @@ def should_force_entry(row, last_entry_time, current_time, cooldown=180):
         return False
     if (current_time - last_entry_time).total_seconds() / 60 < cooldown:
         return False
-    if row.get('spike_score', 0) > 0.6 and abs(row.get('Gain_Z', 0)) > 0.5 and row.get('Pattern_Label', '') in ['Breakout', 'StrongTrend']:
+    if row.get('spike_score', 0) > 0.6 and abs(row.get('Gain_Z', 0)) > 0.5:
         return True
     return False
 
@@ -530,6 +528,7 @@ def run_backtest_cli():  # pragma: no cover
     # === สร้าง close, high, low เป็น lowercase ===
     df.rename(columns={'close': 'close', 'high': 'high', 'low': 'low'}, inplace=True)
 
+    # Calculate technical indicators and signals
     df = calculate_macd(df)
     df = detect_macd_divergence(df)
     df = macd_cross_signal(df)
@@ -537,6 +536,25 @@ def run_backtest_cli():  # pragma: no cover
     df = calculate_spike_guard(df)
     df = validate_divergence(df)
     df = calculate_trend_confirm(df)
+    # Compute RSI (14-period) for momentum indication
+    df['RSI'] = df['close'].rolling(14).apply(
+        lambda x: 100 - 100 / (1 + (np.mean(np.clip(np.diff(x), 0, None)) /
+                                    ((np.mean(np.clip(-np.diff(x), 0, None))) + 1e-6))),
+        raw=False
+    )
+    df['RSI'].fillna(50, inplace=True)
+    logger.debug("RSI calculated")
+    # Compute short-term momentum Z-score (Gain_Z) over 10-bar returns
+    ret10 = df['close'].pct_change(10)
+    df['Gain_Z'] = ((ret10 - ret10.rolling(60).mean()) / (ret10.rolling(60).std() + 1e-6)).fillna(0)
+    logger.debug("Gain_Z calculated")
+    # Label pattern signals: Breakout, Reversal, StrongTrend
+    df['Pattern_Label'] = ''
+    df.loc[(df['divergence'] == 'bearish') & (df['RSI'] > 55), 'Pattern_Label'] = 'Breakout'
+    df.loc[(df['divergence'] == 'bullish') & (df['RSI'] < 45), 'Pattern_Label'] = 'Reversal'
+    df.loc[(df['Pattern_Label'] == '') & (df['trend_confirm'] == 'up') & (df['RSI'] > 60), 'Pattern_Label'] = 'StrongTrend'
+    df.loc[(df['Pattern_Label'] == '') & (df['trend_confirm'] == 'down') & (df['RSI'] < 40), 'Pattern_Label'] = 'StrongTrend'
+    logger.debug("Pattern labels assigned")
     df = label_wave_phase(df)
 
     fold_param = {
@@ -568,7 +586,9 @@ def run_backtest_cli():  # pragma: no cover
     last_entry_idx = -cooldown_bars
 
     consecutive_loss = 0
+    consecutive_win = 0
     recovery_multiplier = 0.5
+    win_streak_boost = 1.2
     base_lot = 0.1
     prev_trade_result = None
     last_exit_idx = -cooldown_bars
@@ -608,6 +628,8 @@ def run_backtest_cli():  # pragma: no cover
                 lot_size = min(risk_amount / distance, 0.3)
                 if consecutive_loss >= 2:
                     lot_size *= recovery_multiplier
+                if consecutive_win >= 2:
+                    lot_size *= win_streak_boost
 
                 position = {
                     'type': position_type,
@@ -641,6 +663,8 @@ def run_backtest_cli():  # pragma: no cover
                 lot_size = min(risk_amount / distance, 0.3)
                 if consecutive_loss >= 2:
                     lot_size *= recovery_multiplier
+                if consecutive_win >= 2:
+                    lot_size *= win_streak_boost
 
                 position = {
                     'type': position_type,
@@ -657,7 +681,7 @@ def run_backtest_cli():  # pragma: no cover
         else:
             if position['type'] == 'long':
                 commission = min((position['lot_size'] / lot_unit) * commission_per_lot, capital * 0.05)
-                if not position['tp1_hit'] and row['high'] >= position['entry'] + pip_size * 0.8:
+                if not position['tp1_hit'] and row['high'] >= position['entry'] + pip_size * sl_multiplier:
                     pnl = capital * risk_per_trade * 0.5
                     pnl -= commission
                     capital += pnl
@@ -666,7 +690,7 @@ def run_backtest_cli():  # pragma: no cover
                     trades.append({
                         **position,
                         'exit_time': row['timestamp'],
-                        'exit_price': position['entry'] + pip_size * 0.8,
+                        'exit_price': position['entry'] + pip_size * sl_multiplier,
                         'pnl': pnl,
                         'commission': commission,
                         'capital': capital,
@@ -688,6 +712,7 @@ def run_backtest_cli():  # pragma: no cover
                         'exit': 'SL',
                     })
                     consecutive_loss += 1
+                    consecutive_win = 0
                     prev_trade_result = 'SL'
                     last_exit_idx = i
                     position = None
@@ -705,12 +730,13 @@ def run_backtest_cli():  # pragma: no cover
                         'exit': 'TP2' if position['tp1_hit'] else 'TP',
                     })
                     consecutive_loss = 0
+                    consecutive_win += 1
                     prev_trade_result = 'TP'
                     last_exit_idx = i
                     position = None
             elif position['type'] == 'short':
                 commission = min((position['lot_size'] / lot_unit) * commission_per_lot, capital * 0.05)
-                if not position['tp1_hit'] and row['low'] <= position['entry'] - pip_size * 0.8:
+                if not position['tp1_hit'] and row['low'] <= position['entry'] - pip_size * sl_multiplier:
                     pnl = capital * risk_per_trade * 0.5
                     pnl -= commission
                     capital += pnl
@@ -719,7 +745,7 @@ def run_backtest_cli():  # pragma: no cover
                     trades.append({
                         **position,
                         'exit_time': row['timestamp'],
-                        'exit_price': position['entry'] - pip_size * 0.8,
+                        'exit_price': position['entry'] - pip_size * sl_multiplier,
                         'pnl': pnl,
                         'commission': commission,
                         'capital': capital,
@@ -741,6 +767,7 @@ def run_backtest_cli():  # pragma: no cover
                         'exit': 'SL',
                     })
                     consecutive_loss += 1
+                    consecutive_win = 0
                     prev_trade_result = 'SL'
                     last_exit_idx = i
                     position = None
@@ -758,6 +785,7 @@ def run_backtest_cli():  # pragma: no cover
                         'exit': 'TP2' if position['tp1_hit'] else 'TP',
                     })
                     consecutive_loss = 0
+                    consecutive_win += 1
                     prev_trade_result = 'TP'
                     last_exit_idx = i
                     position = None
