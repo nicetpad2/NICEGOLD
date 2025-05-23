@@ -736,6 +736,13 @@ def run_backtest_cli():  # pragma: no cover
     for i in range(1, len(df)):
         row = df.iloc[i]
         equity_curve.append({'timestamp': row['timestamp'], 'equity': capital})
+        if i % 10000 == 0:
+            logger.info(
+                "Backtest progress: %d/%d (%.2f%%)",
+                i,
+                len(df),
+                i / len(df) * 100,
+            )
 
         # [Patch 2] Global kill switch check
         if not kill_switch_triggered and capital <= kill_switch_threshold:
