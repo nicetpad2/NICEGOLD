@@ -241,3 +241,9 @@
 ### Changed
 - ปรับ `align_mtf_zones` ให้ใช้เงื่อนไขเวกเตอร์และตัวแปรใหม่
 
+## [v1.9.33] — 2025-07-03
+### Changed
+- `run_backtest_cli` โหลดไฟล์ด้วย `low_memory=False` และ optimize หน่วยความจำ
+- เพิ่ม `calculate_trend_confirm` ก่อนสร้างสัญญาณ SMC
+- แสดง RAM ที่ใช้ผ่าน logger เพื่อการตรวจสอบ QA
+

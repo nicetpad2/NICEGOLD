@@ -3,6 +3,10 @@ import numpy as np
 import os
 from datetime import datetime
 import logging
+try:
+    import psutil
+except Exception:  # pragma: no cover - optional dependency
+    psutil = None
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -638,8 +642,9 @@ def run_backtest_cli():  # pragma: no cover
     logger.debug("Running backtest CLI")
     qa_log_step("Load data")
     # === โหลดและแปลงพ.ศ.เป็นค.ศ. ===
-    df = pd.read_csv("/content/drive/MyDrive/NICEGOLD/XAUUSD_M1.csv")
+    df = pd.read_csv("/content/drive/MyDrive/NICEGOLD/XAUUSD_M1.csv", low_memory=False)  # [Patch] Load CSV with full memory for L4 RAM
     df.columns = [col.lower() for col in df.columns]
+    df = optimize_memory(df)  # [Patch] Optimize DataFrame memory usage to unlock full RAM
 
     year = df['date'].astype(str).str.slice(0, 4).astype(int) - 543
     month = df['date'].astype(str).str.slice(4, 6).astype(int)
@@ -662,7 +667,11 @@ def run_backtest_cli():  # pragma: no cover
     ).fillna(50)
     qa_log_step("Indicators calculated")
     # === Generate entry signals using Multi-Timeframe SMC confirmation ===
-    df = generate_smart_signal(df)  # [Patch] Replaced old signal logic with SMC-based signals
+    df = calculate_trend_confirm(df)  # [Patch] Add EMA Fast/Slow for is_trending()
+    df = generate_smart_signal(df)  # [Patch] Entry signal using SMC OB+LG+ConfirmBar (M15-M1)
+    if psutil is not None:
+        ram_used = psutil.virtual_memory().used / (1024 ** 3)
+        logger.info(f"[QA] RAM used: {ram_used:.2f} GB")  # [Patch] Show RAM usage for QA monitoring
     qa_log_step("Signals generated")
 
 # === Backtest ปรับปรุง: ถือไม้เดียว, TP:SL = 2:1 (ใช้ ATR) ===
