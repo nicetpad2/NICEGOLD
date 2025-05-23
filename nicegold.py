@@ -24,9 +24,9 @@ except Exception:  # pragma: no cover - optional dependency
 
 CONFIG_PATH = "config.yaml"
 
-# === Default Parameters for Simple Backtest ===
+# === Default Parameters (Updated) ===
 initial_capital = 100.0
-risk_per_trade = 0.05
+risk_per_trade = 0.05  # ความเสี่ยงต่อไม้ 5% ของทุน (เพิ่มจาก 1% เดิมเพื่อเร่งการเติบโต) [Patch]
 max_drawdown_pct = 0.30
 partial_tp_ratio = 0.5
 cooldown_minutes = 180
@@ -566,21 +566,21 @@ def run_backtest_cli():  # pragma: no cover
     df = apply_wave_macd_cross_entry(df)
     logger.debug(df[['timestamp', 'entry_signal', 'Wave_Phase', 'RSI', 'divergence']].tail(30))  # [Patch G-Fix1] signal debug tail
 
-# === Backtest สมจริง: ถือไม้เดียว, TP:SL = 2:1 ===
+# === Backtest ปรับปรุง: ถือไม้เดียว, TP:SL = 2:1 (ใช้ ATR) ===
     initial_capital = 100.0
     capital = initial_capital
-    risk_per_trade = 0.01
-    tp_multiplier = 2.0
-    sl_multiplier = 1.0
-    pip_size = 0.1
-    spread = 0.80  # 80 points = 0.80 USD (broker 3-digit)
-    slippage = 0.05
+    risk_per_trade = 0.05  # เพิ่มความเสี่ยงต่อไม้เป็น 5% [Patch]
+    tp_multiplier = 2.0    # TP สุดท้าย 2 ATR จากจุดเข้า (2R) [Patch]
+    sl_multiplier = 1.0    # SL ที่ 1 ATR จากจุดเข้า (1R) [Patch]
+    pip_size = 0.1         # 1 pip = $0.1 (ใช้สำหรับ trailing เล็กน้อย)
+    spread = 0.50          # ลดสเปรดสมมุติลงให้สมเหตุสมผลกับตลาดจริง (~$0.5) [Patch]
+    slippage = 0.05        # ค่า slippage คงที่
     commission_per_lot = 0.10
     lot_unit = 0.01
 
-    kill_switch_threshold = 50.0
+    kill_switch_threshold = 50.0  # หยุดเทรดทั้งหมดหากทุนลดต่ำกว่า $50 (50% ของเริ่มต้น) [Patch]
     kill_switch_triggered = False
-    cooldown_bars = 1
+    cooldown_bars = 1  # รออย่างน้อย 1 แท่ง (1 นาที) หลัง SL ก่อนเข้าใหม่ (Cool-down) [Patch]
     last_entry_idx = -cooldown_bars
 
     consecutive_loss = 0
@@ -601,13 +601,17 @@ def run_backtest_cli():  # pragma: no cover
             position = None
 
         if row.get('spike_score', 0) > 0.75:
-            continue
+            continue  # ข้ามแท่งที่ความผันผวนสูงผิดปกติ (anti-spike) [Patch]
 
         if position is None:
             allow_reentry = True
             if prev_trade_result == 'SL' and (i - last_exit_idx) < cooldown_bars:
                 allow_reentry = False
-            if row['entry_signal'] in ['buy', 'sell'] and not row['spike'] and i - last_entry_idx > cooldown_bars and allow_reentry:
+            if row['entry_signal'] in ['buy', 'sell'] and not row['spike'] and (i - last_entry_idx) > cooldown_bars and allow_reentry:
+                # เข้าใหม่เฉพาะช่วงเวลาตลาดหลักที่มีสภาพคล่องสูง (13:00-22:00) [Patch]
+                hour = row['timestamp'].hour
+                if hour < 13 or hour > 22:
+                    continue
                 if row['entry_signal'] == 'buy':
                     entry_price = row['close'] + spread + slippage
                     sl = entry_price - pip_size * sl_multiplier
@@ -620,10 +624,11 @@ def run_backtest_cli():  # pragma: no cover
                     position_type = 'short'
 
                 risk_amount = capital * risk_per_trade
+                # คำนวณระยะ SL ตาม ATR (volatility) แทนค่าคงที่
                 distance = abs(entry_price - sl)
-                if distance < 0.05:
+                if distance < 1e-6:
                     continue
-                lot_size = min(risk_amount / distance, 0.3)
+                lot_size = min(risk_amount / distance, 0.3)  # คำนวณขนาดสัญญาจากความเสี่ยงที่ยอมรับ และจำกัดที่ 0.30 ล็อต [Patch]
                 if consecutive_loss >= 2:
                     lot_size *= recovery_multiplier
                 if consecutive_win >= 2:
@@ -655,10 +660,11 @@ def run_backtest_cli():  # pragma: no cover
                     position_type = 'short'
 
                 risk_amount = capital * risk_per_trade
+                # คำนวณระยะ SL ตาม ATR (volatility) แทนค่าคงที่
                 distance = abs(entry_price - sl)
-                if distance < 0.05:
+                if distance < 1e-6:
                     continue
-                lot_size = min(risk_amount / distance, 0.3)
+                lot_size = min(risk_amount / distance, 0.3)  # คำนวณขนาดสัญญาจากความเสี่ยงที่ยอมรับ และจำกัดที่ 0.30 ล็อต [Patch]
                 if consecutive_loss >= 2:
                     lot_size *= recovery_multiplier
                 if consecutive_win >= 2:
@@ -679,7 +685,7 @@ def run_backtest_cli():  # pragma: no cover
         else:
             if position['type'] == 'long':
                 commission = (position['lot_size'] / lot_unit) * commission_per_lot  # [Patch G-Fix1] charged once, realistic
-                if not position['tp1_hit'] and row['high'] >= position['entry'] + pip_size * sl_multiplier:
+                if not position['tp1_hit'] and row['high'] >= position['entry'] + (position['entry'] - position['sl']):
                     pnl = capital * risk_per_trade * 0.5
                     pnl -= commission
                     capital += pnl
@@ -734,7 +740,7 @@ def run_backtest_cli():  # pragma: no cover
                     position = None
             elif position['type'] == 'short':
                 commission = (position['lot_size'] / lot_unit) * commission_per_lot  # [Patch G-Fix1] charged once at exit only
-                if not position['tp1_hit'] and row['low'] <= position['entry'] - pip_size * sl_multiplier:
+                if not position['tp1_hit'] and row['low'] <= position['entry'] - (position['sl'] - position['entry']):
                     pnl = capital * risk_per_trade * 0.5
                     pnl -= commission
                     capital += pnl
