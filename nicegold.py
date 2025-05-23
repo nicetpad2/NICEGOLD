@@ -1,5 +1,7 @@
 import pandas as pd
 import numpy as np
+import os
+from datetime import datetime
 import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -23,6 +25,9 @@ except Exception:  # pragma: no cover - optional dependency
     train_test_split = None
 
 CONFIG_PATH = "config.yaml"
+
+TRADE_DIR = "/content/drive/MyDrive/NICEGOLD/logs"
+os.makedirs(TRADE_DIR, exist_ok=True)
 
 # === Default Parameters (Updated) ===
 initial_capital = 100.0
@@ -595,9 +600,11 @@ def run_backtest_cli():  # pragma: no cover
 
     position = None
     trades = []
+    equity_curve = []
 
     for i in range(1, len(df)):
         row = df.iloc[i]
+        equity_curve.append({'timestamp': row['timestamp'], 'equity': capital})
 
         if i % 5000 == 0:
             position = None
@@ -813,6 +820,38 @@ def run_backtest_cli():  # pragma: no cover
     print(df_trades.tail(10))
     if kill_switch_triggered:
         print("Kill switch activated: capital below threshold")
+
+    df_equity = pd.DataFrame(equity_curve)
+    now_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+    trade_log_path = os.path.join(TRADE_DIR, f"trade_log_{now_str}.csv")
+    equity_curve_path = os.path.join(TRADE_DIR, f"equity_curve_{now_str}.csv")
+
+    try:
+        df_trades.to_csv(trade_log_path, index=False)
+        print(f"✅ บันทึก trade log แล้ว: {trade_log_path}")
+    except Exception as e:
+        print(f"❌ ไม่สามารถบันทึก trade_log.csv ได้: {e}")
+
+    try:
+        df_equity.to_csv(equity_curve_path, index=False)
+        print(f"✅ บันทึก equity curve แล้ว: {equity_curve_path}")
+    except Exception as e:
+        print(f"❌ ไม่สามารถบันทึก equity_curve.csv ได้: {e}")
+
+    if plt is not None:
+        try:
+            plt.figure(figsize=(12, 4))
+            df_equity.plot(x='timestamp', y='equity', legend=False)
+            plt.title('Equity Curve')
+            plt.xlabel('Time')
+            plt.ylabel('Equity')
+            plt.grid(True)
+            curve_path = os.path.join(TRADE_DIR, f"equity_plot_{now_str}.png")
+            plt.savefig(curve_path)
+            plt.close()
+            print(f"✅ บันทึกกราฟ equity curve แล้ว: {curve_path}")
+        except Exception as e:
+            print(f"❌ ไม่สามารถบันทึกกราฟ equity curve ได้: {e}")
 
 
 def generate_smart_signal(df):

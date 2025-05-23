@@ -443,5 +443,16 @@ class TestLogging(unittest.TestCase):
         self.assertEqual(logger.name, 'nicegold')
 
 
+class TestPatchGFix2(unittest.TestCase):
+    def test_trade_dir_constant(self):
+        self.assertTrue(hasattr(nicegold, 'TRADE_DIR'))
+
+    def test_run_backtest_cli_paths(self):
+        import inspect
+        src = inspect.getsource(nicegold.run_backtest_cli)
+        self.assertIn('trade_log_', src)
+        self.assertIn('equity_curve_', src)
+
+
 if __name__ == '__main__':  # pragma: no cover
     unittest.main()
