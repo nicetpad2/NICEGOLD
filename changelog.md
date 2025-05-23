@@ -124,3 +124,10 @@
 - Script `convert_csv_ad_to_be` for converting AD dates to Buddhist Era
 - Additional unit test for the new function
 
+## [v1.9.12] — 2025-06-13
+### Changed
+- Expanded indicator preprocessing with RSI, Gain_Z, and Pattern_Label
+- Updated hybrid entry logic and force entry conditions
+- Added win streak boost for position sizing
+- Unit tests updated for new behavior
+

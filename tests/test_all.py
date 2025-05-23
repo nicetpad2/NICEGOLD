@@ -170,6 +170,17 @@ class TestNicegoldExtra(unittest.TestCase):
         self.assertFalse(nicegold.should_force_entry(row, now - timedelta(minutes=500), now))
 
     @unittest.skipUnless(pandas_available and numpy_available, 'requires pandas and numpy')
+    def test_should_force_entry_without_pattern(self):
+        row = {
+            'entry_signal': None,
+            'spike_score': 0.7,
+            'Gain_Z': 0.6,
+        }
+        last_entry = datetime(2020, 1, 1, 0, 0, 0)
+        current_time = last_entry + timedelta(minutes=300)
+        self.assertTrue(nicegold.should_force_entry(row, last_entry, current_time))
+
+    @unittest.skipUnless(pandas_available and numpy_available, 'requires pandas and numpy')
     def test_apply_wave_macd_cross_entry(self):
         df = pd.DataFrame({
             'entry_signal': [None] * 5,
