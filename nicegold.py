@@ -83,7 +83,10 @@ def load_data(file_path=None):
     date_str = df['date'].str.zfill(8)
     year = date_str.str[:4].astype(int) - 543
     ts = year.astype(str) + '-' + date_str.str[4:6] + '-' + date_str.str[6:8]
-    df['timestamp'] = pd.to_datetime(ts + ' ' + df['timestamp'])
+    df['timestamp'] = pd.to_datetime(
+        ts + ' ' + df['timestamp'],
+        format='%Y-%m-%d %H:%M:%S'
+    )
     df['hour'] = df['timestamp'].dt.hour
     df.drop(columns=['date'], inplace=True)
     df = optimize_memory(df)
@@ -1208,7 +1211,10 @@ def run():
     year = df['date'].astype(str).str[:4].astype(int) - 543
     month = df['date'].astype(str).str[4:6].astype(int)
     day = df['date'].astype(str).str[6:8].astype(int)
-    df['timestamp'] = pd.to_datetime(year.astype(str) + '-' + month.astype(str).str.zfill(2) + '-' + day.astype(str).str.zfill(2) + ' ' + df['timestamp'])
+    df['timestamp'] = pd.to_datetime(
+        year.astype(str) + '-' + month.astype(str).str.zfill(2) + '-' + day.astype(str).str.zfill(2) + ' ' + df['timestamp'],
+        format='%Y-%m-%d %H:%M:%S'
+    )
     df['ema35'] = df['close'].ewm(span=35).mean()
     df['RSI'] = df['close'].rolling(14).apply(lambda x: 100 - 100 / (1 + (np.mean(np.clip(np.diff(x), 0, None)) / (np.mean(np.clip(-np.diff(x), 0, None)) + 1e-6))))
     df['atr'] = (df['high'] - df['low']).rolling(14).mean()
@@ -1230,7 +1236,10 @@ def load_csv_m15(path: str = M15_PATH) -> pd.DataFrame:
     logger.debug("Loading M15 data from %s", path)
     df = pd.read_csv(path)
     df.columns = [c.lower() for c in df.columns]
-    df['timestamp'] = pd.to_datetime(df['timestamp'])
+    df['timestamp'] = pd.to_datetime(
+        df['timestamp'],
+        format='%Y-%m-%d %H:%M:%S'
+    )
     df['atr'] = (df['high'] - df['low']).rolling(14).mean()
     return df
 
@@ -1240,7 +1249,10 @@ def load_csv_m1(path: str = M1_PATH) -> pd.DataFrame:
     logger.debug("Loading M1 data from %s", path)
     df = pd.read_csv(path)
     df.columns = [c.lower() for c in df.columns]
-    df['timestamp'] = pd.to_datetime(df['timestamp'])
+    df['timestamp'] = pd.to_datetime(
+        df['timestamp'],
+        format='%Y-%m-%d %H:%M:%S'
+    )
     df['atr'] = (df['high'] - df['low']).rolling(14).mean()
     return df
 
