@@ -545,6 +545,8 @@ def run_backtest_cli():  # pragma: no cover
     ret10 = df['close'].pct_change(10, fill_method=None)
     df['Gain_Z'] = ((ret10 - ret10.rolling(60).mean()) / (ret10.rolling(60).std() + 1e-6)).fillna(0)
     logger.debug("Gain_Z calculated")
+    df['atr'] = (df['high'] - df['low']).rolling(14).mean().fillna(method='bfill')
+    logger.debug("ATR calculated")
     # Label pattern signals: Breakout, Reversal, StrongTrend
     df['Pattern_Label'] = ''
     df.loc[(df['divergence'] == 'bearish') & (df['RSI'] > 55), 'Pattern_Label'] = 'Breakout'
@@ -614,13 +616,13 @@ def run_backtest_cli():  # pragma: no cover
                     continue
                 if row['entry_signal'] == 'buy':
                     entry_price = row['close'] + spread + slippage
-                    sl = entry_price - pip_size * sl_multiplier
-                    tp = entry_price + pip_size * tp_multiplier
+                    sl = entry_price - row['atr'] * sl_multiplier
+                    tp = entry_price + row['atr'] * tp_multiplier
                     position_type = 'long'
                 else:
                     entry_price = row['close'] - spread - slippage
-                    sl = entry_price + pip_size * sl_multiplier
-                    tp = entry_price - pip_size * tp_multiplier
+                    sl = entry_price + row['atr'] * sl_multiplier
+                    tp = entry_price - row['atr'] * tp_multiplier
                     position_type = 'short'
 
                 risk_amount = capital * risk_per_trade
@@ -646,17 +648,18 @@ def run_backtest_cli():  # pragma: no cover
                     'size': 1.0,
                 }
                 last_entry_idx = i
+                logger.info(f"Opened {position_type} position at {position['time']} - Entry: {position['entry']:.2f}, SL: {position['sl']:.2f}, TP: {position['tp']:.2f}, Lot: {position['lot_size']:.2f}")
             elif should_force_entry(row, df.iloc[last_entry_idx]['timestamp'] if last_entry_idx >= 0 else row['timestamp'], row['timestamp']):
                 entry_signal = 'buy' if row.get('Gain_Z', 0) > 0 else 'sell'
                 if entry_signal == 'buy':
                     entry_price = row['close'] + spread + slippage
-                    sl = entry_price - pip_size * sl_multiplier
-                    tp = entry_price + pip_size * tp_multiplier
+                    sl = entry_price - row['atr'] * sl_multiplier
+                    tp = entry_price + row['atr'] * tp_multiplier
                     position_type = 'long'
                 else:
                     entry_price = row['close'] - spread - slippage
-                    sl = entry_price + pip_size * sl_multiplier
-                    tp = entry_price - pip_size * tp_multiplier
+                    sl = entry_price + row['atr'] * sl_multiplier
+                    tp = entry_price - row['atr'] * tp_multiplier
                     position_type = 'short'
 
                 risk_amount = capital * risk_per_trade
@@ -682,15 +685,16 @@ def run_backtest_cli():  # pragma: no cover
                     'size': 1.0,
                 }
                 last_entry_idx = i
+                logger.info(f"Opened {position_type} position at {position['time']} - Entry: {position['entry']:.2f}, SL: {position['sl']:.2f}, TP: {position['tp']:.2f}, Lot: {position['lot_size']:.2f}")
         else:
             if position['type'] == 'long':
                 commission = (position['lot_size'] / lot_unit) * commission_per_lot  # [Patch G-Fix1] charged once, realistic
                 if not position['tp1_hit'] and row['high'] >= position['entry'] + (position['entry'] - position['sl']):
                     pnl = capital * risk_per_trade * 0.5
-                    pnl -= commission
                     capital += pnl
                     position['sl'] = position['entry']
                     position['tp1_hit'] = True
+                    logger.info(f"TP1 reached for {position['type']} at {position['tp']:.2f} - Capital: {capital:.2f}")
                     trades.append({
                         **position,
                         'exit_time': row['timestamp'],
@@ -742,10 +746,10 @@ def run_backtest_cli():  # pragma: no cover
                 commission = (position['lot_size'] / lot_unit) * commission_per_lot  # [Patch G-Fix1] charged once at exit only
                 if not position['tp1_hit'] and row['low'] <= position['entry'] - (position['sl'] - position['entry']):
                     pnl = capital * risk_per_trade * 0.5
-                    pnl -= commission
                     capital += pnl
                     position['sl'] = position['entry']
                     position['tp1_hit'] = True
+                    logger.info(f"TP1 reached for {position['type']} at {position['tp']:.2f} - Capital: {capital:.2f}")
                     trades.append({
                         **position,
                         'exit_time': row['timestamp'],
