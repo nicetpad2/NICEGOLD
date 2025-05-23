@@ -1234,7 +1234,7 @@ def run():
 def load_csv_m15(path: str = M15_PATH) -> pd.DataFrame:
     """Load M15 CSV data and convert BE date to AD datetime."""
     logger.debug("Loading M15 data from %s", path)
-    df = pd.read_csv(path)
+    df = pd.read_csv(path, low_memory=False)
     df.columns = [c.lower() for c in df.columns]
     if 'date' in df.columns and 'timestamp' in df.columns:
         date_str = df['date'].astype(str).str.zfill(8)
@@ -1256,7 +1256,7 @@ def load_csv_m15(path: str = M15_PATH) -> pd.DataFrame:
 def load_csv_m1(path: str = M1_PATH) -> pd.DataFrame:
     """Load M1 CSV data and convert BE date to AD datetime."""
     logger.debug("Loading M1 data from %s", path)
-    df = pd.read_csv(path)
+    df = pd.read_csv(path, low_memory=False)
     df.columns = [c.lower() for c in df.columns]
     if 'date' in df.columns and 'timestamp' in df.columns:
         date_str = df['date'].astype(str).str.zfill(8)
@@ -1321,7 +1321,7 @@ def align_mtf_zones(
     fvg_df: pd.DataFrame,
     lg_df: pd.DataFrame,
 ) -> pd.DataFrame:
-    """Map M15 zones onto M1 bars using vectorized joins for speed."""
+    """Map M15 zones onto M1 bars using vectorized conditions (L4 RAM-ready)."""
     logger.debug("Aligning MTF zones (vectorized)")
     df = df_m1.copy()
     df.sort_values('timestamp', inplace=True)
@@ -1329,29 +1329,23 @@ def align_mtf_zones(
     for col in ['OB_Bull', 'OB_Bear', 'FVG_Bull', 'FVG_Bear', 'LG_Bull', 'LG_Bear']:
         df[col] = False
 
-    ob_bull = ob_df[ob_df['type'] == 'bullish'].copy()
-    ob_bear = ob_df[ob_df['type'] == 'bearish'].copy()
-    fvg_bull = fvg_df[fvg_df['type'] == 'bullish'].copy()
-    fvg_bear = fvg_df[fvg_df['type'] == 'bearish'].copy()
-    lg_bull = lg_df[lg_df['type'] == 'grab_long'].copy()
-    lg_bear = lg_df[lg_df['type'] == 'grab_short'].copy()
-
-    def mark_zone(df, zone_df, zone_col, price_col, buffer=0.002):
+    def mark_zones(df, zone_df, zone_col, buffer=0.002):
         for _, row in zone_df.iterrows():
-            near = (
-                df['timestamp'] >= row['time']
+            ztime = row['time']
+            zprice = row.get('zone') or row.get('high')
+            match = (
+                df['timestamp'] >= ztime
             ) & (
-                abs(df[price_col] - row.get('zone', row.get('high', 0)))
-                <= row.get('atr', 1) * buffer
+                abs(df['close'] - zprice) <= row.get('atr', 1) * buffer
             )
-            df.loc[near, zone_col] = True
+            df.loc[match, zone_col] = True
 
-    mark_zone(df, ob_bull, 'OB_Bull', 'close')
-    mark_zone(df, ob_bear, 'OB_Bear', 'close')
-    mark_zone(df, fvg_bull, 'FVG_Bull', 'close')
-    mark_zone(df, fvg_bear, 'FVG_Bear', 'close')
-    mark_zone(df, lg_bull, 'LG_Bull', 'close', buffer=0.5)
-    mark_zone(df, lg_bear, 'LG_Bear', 'close', buffer=0.5)
+    mark_zones(df, ob_df[ob_df['type'] == 'bullish'], 'OB_Bull')
+    mark_zones(df, ob_df[ob_df['type'] == 'bearish'], 'OB_Bear')
+    mark_zones(df, fvg_df[fvg_df['type'] == 'bullish'], 'FVG_Bull')
+    mark_zones(df, fvg_df[fvg_df['type'] == 'bearish'], 'FVG_Bear')
+    mark_zones(df, lg_df[lg_df['type'] == 'grab_long'], 'LG_Bull', buffer=0.5)
+    mark_zones(df, lg_df[lg_df['type'] == 'grab_short'], 'LG_Bear', buffer=0.5)
 
     return df
 

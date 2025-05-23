@@ -484,6 +484,25 @@ class TestLoadCSVFunctions(unittest.TestCase):
         self.assertNotIn('date', df.columns)
         self.assertEqual(df['timestamp'].iloc[1], pd.Timestamp('2023-05-01 00:01:00'))
 
+    @unittest.skipUnless(pandas_available and numpy_available, 'requires pandas and numpy')
+    def test_load_csv_low_memory_flags(self):
+        with patch('pandas.read_csv') as reader:
+            reader.return_value = pd.DataFrame({
+                'date': ['25670501'],
+                'timestamp': ['0:00:00'],
+                'open': [1], 'high': [1], 'low': [1], 'close': [1]
+            })
+            nicegold.load_csv_m15('dummy.csv')
+            reader.assert_called_with('dummy.csv', low_memory=False)
+        with patch('pandas.read_csv') as reader:
+            reader.return_value = pd.DataFrame({
+                'date': ['25660501'],
+                'timestamp': ['0:00:00'],
+                'open': [1], 'high': [1], 'low': [1], 'close': [1]
+            })
+            nicegold.load_csv_m1('dummy.csv')
+            reader.assert_called_with('dummy.csv', low_memory=False)
+
 
 class TestOptimizeMemory(unittest.TestCase):
     @unittest.skipUnless(pandas_available and numpy_available, 'requires pandas and numpy')
