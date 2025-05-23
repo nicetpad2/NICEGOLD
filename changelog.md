@@ -262,3 +262,7 @@
 ## [v1.9.36] — 2025-07-06
 ### Added
 - NICEGOLD Enterprise QA Supergrowth v3: ป้องกัน SL ใกล้เกิน, จำกัดล็อตตามทุน, ตรวจเทรนด์อย่างเดียว, RR Adaptive
+## [v1.9.37] — 2025-07-07
+### Changed
+- ปรับ `smart_entry_signal` เป็นเวกเตอร์ พร้อม Mask Trend และ Min SL Guard
+

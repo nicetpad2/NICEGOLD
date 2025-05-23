@@ -32,7 +32,7 @@ class TestEnterprise(unittest.TestCase):
             'ema_fast': [2]*61,
             'ema_slow': [1]*61,
             'rsi': [60]*61,
-            'atr': [2]*61,
+            'atr': [3]*61,
             'adx': [20]*61,
             'close': [1]*61,
             'high': [1]*61,
@@ -40,6 +40,17 @@ class TestEnterprise(unittest.TestCase):
         })
         res = enterprise.smart_entry_signal(df)
         self.assertIn('buy', res['entry_signal'].values)
+
+    def test_smart_entry_signal_counts(self):
+        df = pd.DataFrame({
+            'ema_fast': [2]*61,
+            'ema_slow': [1]*61,
+            'rsi': [60]*61,
+            'atr': [3]*61,
+            'adx': [20]*61,
+        })
+        res = enterprise.smart_entry_signal(df)
+        self.assertEqual((res['entry_signal'] == 'buy').sum(), 61-14)
 
     def test_is_strong_trend(self):
         df = pd.DataFrame({
