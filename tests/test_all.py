@@ -480,5 +480,34 @@ class TestTrendConfirmFunctions(unittest.TestCase):
         self.assertIn('is_confirm_bar', src)
 
 
+class TestEnhancedRunBacktest(unittest.TestCase):
+    @unittest.skipUnless(pandas_available and numpy_available, 'requires pandas and numpy')
+    def test_run_backtest_outputs_new_fields(self):
+        df = pd.DataFrame({
+            'timestamp': pd.date_range('2020-01-01', periods=30, freq='min'),
+            'close': np.linspace(1, 1.5, 30),
+            'high': np.linspace(1, 1.5, 30) + 0.2,
+            'low': np.linspace(1, 1.5, 30) - 0.1,
+            'atr': [0.1]*30,
+            'hour': [h % 24 for h in range(30)],
+            'volume': [1]*30,
+            'entry_signal': [None]*30
+        })
+        df.at[25, 'entry_signal'] = 'buy'
+        cfg = {
+            'initial_capital': 100.0,
+            'risk_per_trade': 0.05,
+            'tp1_mult': 0.8,
+            'tp2_mult': 2.0,
+            'trade_start_hour': 0,
+            'trade_end_hour': 23,
+            'kill_switch_min': 70,
+            'max_drawdown_pct': 30
+        }
+        trades = nicegold.run_backtest(df, cfg)
+        for col in ['type', 'reason_entry', 'risk_price', 'risk_amount']:
+            self.assertIn(col, trades.columns)
+
+
 if __name__ == '__main__':  # pragma: no cover
     unittest.main()
