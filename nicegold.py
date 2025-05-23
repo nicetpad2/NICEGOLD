@@ -35,6 +35,16 @@ def get_logger():
     return logger
 
 
+def optimize_memory(df: pd.DataFrame) -> pd.DataFrame:
+    """ลดการใช้หน่วยความจำของ DataFrame"""
+    logger.debug("Optimizing memory usage")
+    float_cols = df.select_dtypes(include=["float64"]).columns
+    int_cols = df.select_dtypes(include=["int64"]).columns
+    df[float_cols] = df[float_cols].apply(pd.to_numeric, downcast="float")
+    df[int_cols] = df[int_cols].apply(pd.to_numeric, downcast="integer")
+    return df
+
+
 
 def load_config(path: str = CONFIG_PATH):
     """Load configuration from YAML file"""
@@ -48,29 +58,22 @@ def load_config(path: str = CONFIG_PATH):
 
 # === โหลดข้อมูล ===
 def load_data(file_path=None):
-    """อ่านไฟล์ CSV ที่มีคอลัมน์ Date (พ.ศ.) และ Timestamp แล้วแปลงเป็น datetime"""
+    """อ่านไฟล์ CSV และแปลงคอลัมน์วันที่จากพ.ศ.เป็นค.ศ."""
     if file_path is None:
         file_path = "XAUUSD_M1.csv"
     logger.debug("Loading data from %s", file_path)
-    df = pd.read_csv(file_path)
+    df = pd.read_csv(file_path, dtype=str)
     df.columns = [c.lower() for c in df.columns]
     if 'date' not in df.columns or 'timestamp' not in df.columns:
-        return df
+        return optimize_memory(df)
 
-    year = df['date'].astype(str).str.slice(0, 4).astype(int) - 543
-    month = df['date'].astype(str).str.slice(4, 6).astype(int)
-    day = df['date'].astype(str).str.slice(6, 8).astype(int)
-
-    datetime_str = (
-        year.astype(str)
-        + '-' + month.astype(str).str.zfill(2)
-        + '-' + day.astype(str).str.zfill(2)
-        + ' '
-        + df['timestamp'].astype(str)
-    )
-    df['timestamp'] = pd.to_datetime(datetime_str, format='%Y-%m-%d %H:%M:%S')
+    date_str = df['date'].str.zfill(8)
+    year = date_str.str[:4].astype(int) - 543
+    ts = year.astype(str) + '-' + date_str.str[4:6] + '-' + date_str.str[6:8]
+    df['timestamp'] = pd.to_datetime(ts + ' ' + df['timestamp'])
     df['hour'] = df['timestamp'].dt.hour
-    df = df.drop(columns=['date'])
+    df.drop(columns=['date'], inplace=True)
+    df = optimize_memory(df)
     logger.debug("Loaded %d rows", len(df))
     return df
 
@@ -116,17 +119,11 @@ def calculate_macd(df, price_col='close', fast=12, slow=26, signal=9):
 
 def detect_macd_divergence(df, price_col='close'):
     logger.debug("Detecting MACD divergence")
-    price = df[price_col].values
-    hist = df['macd_hist'].values
-    divergence = [None, None]
-    for i in range(2, len(df)):
-        if price[i] < price[i - 2] and hist[i] > hist[i - 2]:
-            divergence.append('bullish')
-        elif price[i] > price[i - 2] and hist[i] < hist[i - 2]:
-            divergence.append('bearish')
-        else:
-            divergence.append(None)
-    df['divergence'] = divergence
+    prev_price = df[price_col].shift(2)
+    prev_hist = df['macd_hist'].shift(2)
+    bull = (df[price_col] < prev_price) & (df['macd_hist'] > prev_hist)
+    bear = (df[price_col] > prev_price) & (df['macd_hist'] < prev_hist)
+    df['divergence'] = np.where(bull, 'bullish', np.where(bear, 'bearish', None))
     logger.debug("Divergence column added")
     return df
 

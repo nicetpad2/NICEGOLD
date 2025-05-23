@@ -400,6 +400,18 @@ class TestConvertCSV(unittest.TestCase):
         self.assertEqual(df['date'].tolist(), ['25670501', '25670502'])
 
 
+class TestOptimizeMemory(unittest.TestCase):
+    @unittest.skipUnless(pandas_available and numpy_available, 'requires pandas and numpy')
+    def test_optimize_memory_downcast(self):
+        df = pd.DataFrame({
+            'a': np.arange(3, dtype='int64'),
+            'b': np.arange(3, dtype='float64')
+        })
+        df_opt = nicegold.optimize_memory(df.copy())
+        self.assertNotEqual(df_opt['a'].dtype, np.int64)
+        self.assertNotEqual(df_opt['b'].dtype, np.float64)
+
+
 
 class TestLogging(unittest.TestCase):
     def test_get_logger(self):
