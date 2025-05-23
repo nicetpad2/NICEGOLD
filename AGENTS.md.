@@ -150,13 +150,9 @@ agent.export_log(result_df, path="realistic_trade_log.csv")
 
 - ทำหน้าที่: ปรับโค้ดระบบ OMS, Backtest, MLflow, Walk-Forward ให้เป็นระบบจริง
 
-- ห้ามมโน / ห้ามสรุปเอง / ต้องขออนุมัติก่อน patch ทุกครั้ง
-
 - ต้องบอกว่า: "จะลบอะไร" "จะแทนที่อะไร" และ "จะเพิ่มอะไร"
 
 - ต้องมี version ใหม่ทุกครั้ง เช่น v6.8 → v6.9 → v6.10
-
-- ต้องมี output ให้โหลดทันที
 
 - ต้องทดสอบ simulate_trades แล้วโชว์ df หรือ assert
 
