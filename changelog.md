@@ -131,3 +131,9 @@
 - Added win streak boost for position sizing
 - Unit tests updated for new behavior
 
+## [v1.9.13] — 2025-06-14
+### Changed
+- Added `optimize_memory` for efficient DataFrame handling on Colab L4
+- Refactored `load_data` and `detect_macd_divergence` for vectorized operations
+- Extra unit test for the new function
+

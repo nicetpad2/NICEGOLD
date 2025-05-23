@@ -1,8 +1,8 @@
 # 🧠 agent.md — Gold AI: Elliott-MACD Realistic QA Agent
 
 
-**Version:** v1.9.12
-**Last updated:** 2025-06-13
+**Version:** v1.9.13
+**Last updated:** 2025-06-14
 
 
 **Maintainer:** AI Studio QA / Dev Agent System  
@@ -56,3 +56,7 @@ agent.export_log(result_df, path="realistic_trade_log.csv")
 - [x] `changelog.md` updated with patch note
 - [x] เพิ่ม unit tests เพื่อให้ครอบคลุม 100%
 - [x] ใส่ debug logging ทุกครั้งเมื่ออัปเดตหรือเพิ่มฟังก์ชันใหม่
+
+### 📝 Patch v1.9.13
+- เพิ่มฟังก์ชัน `optimize_memory` เพื่อประหยัดหน่วยความจำบน Colab L4
+- ปรับ `load_data` และ `detect_macd_divergence` ให้เป็นเวกเตอร์และมีประสิทธิภาพมากขึ้น
