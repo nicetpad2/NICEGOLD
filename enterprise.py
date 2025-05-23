@@ -1,4 +1,4 @@
-# NICEGOLD Enterprise Supergrowth v2.0 - Risk Sizing, Trend RR, OMS, Full Logging
+# NICEGOLD Enterprise QA Supergrowth v3 - Min SL, Lot Cap, Trend Only, RR Adaptive
 import pandas as pd
 import numpy as np
 import os
@@ -12,23 +12,25 @@ TRADE_DIR = "/content/drive/MyDrive/NICEGOLD/logs"
 os.makedirs(TRADE_DIR, exist_ok=True)
 M1_PATH = "/content/drive/MyDrive/NICEGOLD/XAUUSD_M1.csv"
 
-# Parameters – Growth, RR, OMS
+# [Patch] Parameters – MM & Growth
 initial_capital = 100.0
 risk_per_trade = 0.03
-tp1_mult = 1.5
-tp2_mult = 4.0    # Aggressive growth
+tp1_mult = 1.0
+tp2_mult = 3.5
 sl_mult = 1.0
-breakeven_buffer = 0.01
-lot_max = 10.0
+min_sl_dist = 2.0    # [Patch] ป้องกัน SL ใกล้เกิน
+lot_max = 0.25
+lot_cap_500 = 0.25
+lot_cap_2000 = 0.5
 cooldown_bars = 2
 oms_recovery_loss = 4
-win_streak_boost = 1.15
-recovery_multiplier = 0.5
+win_streak_boost = 1.1
+recovery_multiplier = 0.3
 trailing_atr_mult = 1.1
-kill_switch_dd = 0.55    # deeper to allow recover
-trend_lookback = 30      # EMA Trend filter lookback
+kill_switch_dd = 0.5
+trend_lookback = 30
 adx_period = 20
-adx_thresh = 18
+adx_thresh = 15
 
 
 def load_data(path):
@@ -76,30 +78,34 @@ def calc_indicators(df):
     return df
 
 
+def is_strong_trend(df, i):
+    """[Patch] Trend confirm ด้วย EMA cross และ Trend Strength rolling"""
+    if i < trend_lookback * 2:
+        return False
+    trend = (
+        (df['ema_fast'].iloc[i - trend_lookback + 1:i + 1] >
+         df['ema_slow'].iloc[i - trend_lookback + 1:i + 1]).all() or
+        (df['ema_fast'].iloc[i - trend_lookback + 1:i + 1] <
+         df['ema_slow'].iloc[i - trend_lookback + 1:i + 1]).all()
+    )
+    adx = df['adx'].iloc[i] > adx_thresh
+    atr_high = df['atr'].iloc[i] > df['atr'].rolling(1000).median().iloc[i] * 1.2
+    return trend and (adx or atr_high)
+
+
 def smart_entry_signal(df):
-    """Generate entry signals with trend, volatility, and RR"""
-    logger.info("[Patch] Generating entry signals: trend+vol+rr")
+    logger.info("[Patch] Generating entry signals: trend-only, min SL guard")
     df = df.copy()
     df['entry_signal'] = None
-
-    median_atr = df['atr'].rolling(1000).median().fillna(df['atr'].median())
-    trend_long = df['ema_fast'] > df['ema_slow']
-    trend_short = df['ema_fast'] < df['ema_slow']
-    vol_high = df['atr'] > median_atr*1.2
-    adx_good = df['adx'] > adx_thresh
-
-    long_cond = (
-        trend_long &
-        (df['rsi'] > 53) &
-        (vol_high | adx_good)
-    )
-    short_cond = (
-        trend_short &
-        (df['rsi'] < 47) &
-        (vol_high | adx_good)
-    )
-    df.loc[long_cond, 'entry_signal'] = 'buy'
-    df.loc[short_cond, 'entry_signal'] = 'sell'
+    for i in range(len(df)):
+        if not is_strong_trend(df, i):
+            continue
+        if df['atr'].iloc[i] < min_sl_dist:
+            continue
+        if (df['ema_fast'].iloc[i] > df['ema_slow'].iloc[i]) and (df['rsi'].iloc[i] > 53):
+            df.at[df.index[i], 'entry_signal'] = 'buy'
+        if (df['ema_fast'].iloc[i] < df['ema_slow'].iloc[i]) and (df['rsi'].iloc[i] < 47):
+            df.at[df.index[i], 'entry_signal'] = 'sell'
     return df
 
 
@@ -135,13 +141,17 @@ class OMSManager:
         if self.win_streak > 2:
             self.recovery_mode = False
 
-    def smart_lot(self, risk_amount, entry_sl_dist):
-        lot = risk_amount / max(entry_sl_dist, 1e-5)
+    def smart_lot(self, capital, risk_amount, entry_sl_dist):
+        # [Patch] Lot cap by capital tier
+        lot_cap = self.lot_max
+        if capital < 500:
+            lot_cap = lot_cap_500
+        elif capital < 2000:
+            lot_cap = lot_cap_2000
+        lot = risk_amount / max(entry_sl_dist, min_sl_dist)
         if self.recovery_mode:
             lot *= recovery_multiplier
-        if self.win_streak >= 3:
-            lot *= win_streak_boost
-        lot = max(0.01, min(lot, self.lot_max))
+        lot = max(0.01, min(lot, lot_cap))
         return lot
 
 
@@ -165,16 +175,16 @@ def run_backtest():
             logger.info("[Patch] OMS: Stop trading (kill switch)")
             break
 
-        # Entry
+        # Entry with min SL distance guard
         if position is None and row['entry_signal'] in ['buy', 'sell'] and (i - last_entry_idx) >= cooldown_bars:
             direction = row['entry_signal']
-            atr = row['atr']
+            atr = max(row['atr'], min_sl_dist)
             entry = row['close']
             sl = entry - atr*sl_mult if direction == 'buy' else entry + atr*sl_mult
             tp1 = entry + atr*tp1_mult if direction == 'buy' else entry - atr*tp1_mult
             tp2 = entry + atr*tp2_mult if direction == 'buy' else entry - atr*tp2_mult
             risk_amount = capital * risk_per_trade
-            lot = oms.smart_lot(risk_amount, abs(entry-sl))
+            lot = oms.smart_lot(capital, risk_amount, abs(entry-sl))
             mode = "RECOVERY" if oms.recovery_mode else "NORMAL"
             position = {
                 'entry_time': row['timestamp'],
@@ -186,7 +196,7 @@ def run_backtest():
                 'lot': lot,
                 'tp1_hit': False,
                 'breakeven': False,
-                'reason_entry': f"Trend+Vol+RR {direction}",
+                'reason_entry': f"TrendOnly+SLGuard {direction}",
                 'mode': mode,
                 'risk': risk_amount,
                 'dd_at_entry': (oms.peak-capital)/oms.peak,
@@ -202,7 +212,8 @@ def run_backtest():
                 if hit_tp1:
                     pnl = position['lot'] * abs(position['tp1']-position['entry']) * 0.5
                     capital += pnl
-                    position['sl'] = position['entry'] + (breakeven_buffer if position['type']=='buy' else -breakeven_buffer)
+                    # Move stop to breakeven after TP1
+                    position['sl'] = position['entry']
                     position['tp1_hit'] = True
                     position['breakeven'] = True
                     trades.append({**position, 'exit_time': row['timestamp'], 'exit': 'TP1', 'pnl': pnl, 'capital': capital, 'reason_exit': 'Partial TP1'})

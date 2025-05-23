@@ -258,3 +258,7 @@
 ## [v1.9.35] — 2025-07-05
 ### Added
 - NICEGOLD Enterprise v2.0: ระบบ Risk Sizing ตามเทรนด์และ RR, OMS สมบูรณ์, บันทึกเทรดและ equity curve แบบละเอียด
+
+## [v1.9.36] — 2025-07-06
+### Added
+- NICEGOLD Enterprise QA Supergrowth v3: ป้องกัน SL ใกล้เกิน, จำกัดล็อตตามทุน, ตรวจเทรนด์อย่างเดียว, RR Adaptive
