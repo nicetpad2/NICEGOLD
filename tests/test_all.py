@@ -323,5 +323,12 @@ class TestWalkForward(unittest.TestCase):
         os.remove('trade_plot.png')
 
 
+class TestLogging(unittest.TestCase):
+    def test_get_logger(self):
+        logger = nicegold.get_logger() if hasattr(nicegold, 'get_logger') else None
+        self.assertIsNotNone(logger)
+        self.assertEqual(logger.name, 'nicegold')
+
+
 if __name__ == '__main__':  # pragma: no cover
     unittest.main()

@@ -1,7 +1,7 @@
 # 🧠 agent.md — Gold AI: Elliott-MACD Realistic QA Agent
 
-**Version:** v1.9.6
-**Last updated:** 2025-06-07
+**Version:** v1.9.8
+**Last updated:** 2025-06-09
 
 **Maintainer:** AI Studio QA / Dev Agent System  
 
@@ -52,3 +52,4 @@ agent.export_log(result_df, path="realistic_trade_log.csv")
 - [x] `agent.md` updated
 - [x] `changelog.md` updated with patch note
 - [x] เพิ่ม unit tests เพื่อให้ครอบคลุม 100%
+- [x] ใส่ debug logging ทุกครั้งเมื่ออัปเดตหรือเพิ่มฟังก์ชันใหม่
