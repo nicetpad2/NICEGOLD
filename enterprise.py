@@ -13,6 +13,7 @@ logging.basicConfig(level=logging.INFO)
 TRADE_DIR = "/content/drive/MyDrive/NICEGOLD/logs"
 os.makedirs(TRADE_DIR, exist_ok=True)
 M1_PATH = "/content/drive/MyDrive/NICEGOLD/XAUUSD_M1.csv"
+M15_PATH = "/content/drive/MyDrive/NICEGOLD/XAUUSD_M15.csv"
 
 # [Patch] Parameters – MM & Growth
 initial_capital = 100.0
@@ -217,14 +218,19 @@ def load_data(path):
     df = df.sort_values('timestamp').reset_index(drop=True)
     return df
 
-def calc_indicators(df):
+def calc_indicators(df, ema_fast_period=None, ema_slow_period=None, rsi_period=14):
     logger.info("[Patch] Calculating indicators")
-    df['ema_fast'] = df['close'].ewm(span=trend_lookback, adjust=False).mean()
-    df['ema_slow'] = df['close'].ewm(span=trend_lookback*2, adjust=False).mean()
-    df['ema_fast_htf'] = df['close'].ewm(span=trend_lookback*4, adjust=False).mean()
-    df['ema_slow_htf'] = df['close'].ewm(span=trend_lookback*8, adjust=False).mean()
-    df['rsi'] = df['close'].rolling(14).apply(
-        lambda x: 100 - 100 / (1 + (np.mean(np.clip(np.diff(x), 0, None)) / (np.mean(np.clip(-np.diff(x), 0, None)) + 1e-6))),
+    if ema_fast_period is None:
+        ema_fast_period = trend_lookback
+    if ema_slow_period is None:
+        ema_slow_period = trend_lookback * 2
+    df['ema_fast'] = df['close'].ewm(span=ema_fast_period, adjust=False).mean()
+    df['ema_slow'] = df['close'].ewm(span=ema_slow_period, adjust=False).mean()
+    df['ema_fast_htf'] = df['close'].ewm(span=ema_fast_period * 4, adjust=False).mean()
+    df['ema_slow_htf'] = df['close'].ewm(span=ema_slow_period * 4, adjust=False).mean()
+    df['rsi'] = df['close'].rolling(rsi_period).apply(
+        lambda x: 100 - 100 / (1 + (np.mean(np.clip(np.diff(x), 0, None)) /
+                                   (np.mean(np.clip(-np.diff(x), 0, None)) + 1e-6))),
         raw=False
     )
     df['atr'] = (df['high'] - df['low']).rolling(14).mean()
@@ -243,6 +249,22 @@ def calc_indicators(df):
     dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di)
     df['adx'] = dx.rolling(adx_period).mean()
     return df
+
+
+def add_m15_context_to_m1(df_m1, df_m15):
+    """[Patch] Join M15 trend/indicator context onto M1 DataFrame by nearest timestamp."""
+    import pandas as pd
+    logger.info("[Patch] Add M15 trend context to M1")
+    df_m15 = df_m15.copy().sort_values('timestamp').set_index('timestamp')
+    m15_cols = ['ema_fast', 'ema_slow', 'rsi']
+    df_m15_ctx = df_m15[m15_cols].rename(columns={
+        'ema_fast': 'm15_ema_fast',
+        'ema_slow': 'm15_ema_slow',
+        'rsi': 'm15_rsi'
+    })
+    df_m1 = df_m1.sort_values('timestamp')
+    df_m1 = pd.merge_asof(df_m1, df_m15_ctx, left_on='timestamp', right_index=True, direction='backward')
+    return df_m1
 
 
 def is_strong_trend(df, i):
@@ -342,6 +364,33 @@ def smart_entry_signal(df):
     )
     return df
 
+
+def smart_entry_signal_multi_tf(df):
+    """[Patch] Multi-Timeframe Confirm Entry (M1 signal + M15 trend)"""
+    logger.info("[Patch] Entry signal with Multi-TF confirm (M1+M15)")
+    df = df.copy()
+    df['entry_signal'] = None
+    buy_cond = (
+        (df['ema_fast'] > df['ema_slow']) &
+        (df['m15_ema_fast'] > df['m15_ema_slow']) &
+        (df['rsi'] > 50) &
+        (df['m15_rsi'] > 50)
+    )
+    sell_cond = (
+        (df['ema_fast'] < df['ema_slow']) &
+        (df['m15_ema_fast'] < df['m15_ema_slow']) &
+        (df['rsi'] < 50) &
+        (df['m15_rsi'] < 50)
+    )
+    df.loc[buy_cond, 'entry_signal'] = 'buy'
+    df.loc[sell_cond, 'entry_signal'] = 'sell'
+    logger.info(
+        "[Patch] Multi-TF Entry counts: buy=%d, sell=%d",
+        (df['entry_signal'] == 'buy').sum(),
+        (df['entry_signal'] == 'sell').sum(),
+    )
+    return df
+
 class OMSManager:
     def __init__(self, capital, kill_switch_dd, lot_max):
         self.capital = capital
@@ -395,10 +444,7 @@ class OMSManager:
         lot = max(0.01, min(lot, lot_cap))
         return lot
 
-def run_backtest():
-    df = load_data(M1_PATH)
-    df = calc_indicators(df)
-    df = smart_entry_signal(df)
+def _execute_backtest(df):
     df = df.dropna(subset=['atr', 'ema_fast', 'ema_slow', 'rsi']).reset_index(drop=True)
 
     capital = initial_capital
@@ -542,6 +588,28 @@ def run_backtest():
         plt.show()
     except Exception as e:
         logger.warning("[Patch] Matplotlib not available for equity plot: %s", e)
+    return df_trades
+
+
+def run_backtest(path=None):
+    """Run single timeframe backtest."""
+    if path is None:
+        path = M1_PATH
+    df = load_data(path)
+    df = calc_indicators(df)
+    df = smart_entry_signal(df)
+    return _execute_backtest(df)
+
+
+def run_backtest_multi_tf(path_m1=M1_PATH, path_m15=M15_PATH):
+    """[Patch] Backtest with M1 trade data and M15 trend confirmation."""
+    df_m1 = load_data(path_m1)
+    df_m15 = load_data(path_m15)
+    df_m15 = calc_indicators(df_m15, ema_fast_period=50, ema_slow_period=200, rsi_period=14)
+    df_m1 = calc_indicators(df_m1, ema_fast_period=15, ema_slow_period=50, rsi_period=14)
+    df_m1 = add_m15_context_to_m1(df_m1, df_m15)
+    df_m1 = smart_entry_signal_multi_tf(df_m1)
+    return _execute_backtest(df_m1)
 
 if __name__ == "__main__":
     run_backtest()

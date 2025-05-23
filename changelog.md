@@ -289,3 +289,9 @@
 - ปรับเส้นทางไฟล์ข้อมูลและ log ให้เป็นแบบ relative ภายใน repo
 - เพิ่มความเสี่ยงต่อไม้เป็น 10% และยกเลิกข้อจำกัด drawdown เพื่อเน้นทดสอบจำนวนเทรด
 
+## [v1.9.43] — 2025-07-13
+### Added
+- ระบบเทรด Multi-TF (M1 ยืนยันด้วย M15)
+- ฟังก์ชัน `run_backtest_multi_tf` และ `smart_entry_signal_multi_tf`
+- `calc_indicators` รองรับกำหนดค่า period
+
