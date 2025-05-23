@@ -92,3 +92,8 @@
 - Combined all unit tests into a single `test_all.py` for easier maintenance
 =======
 
+## [v1.9.6] — 2025-06-07
+### Added
+- Patch G33.4: Equity curve tracking saved to `equity_curve.csv`
+- Patch G33.5: Reduced ML thresholds and added debug logging
+

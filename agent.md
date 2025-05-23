@@ -1,7 +1,7 @@
 # 🧠 agent.md — Gold AI: Elliott-MACD Realistic QA Agent
 
-**Version:** v1.9.5
-**Last updated:** 2025-06-06
+**Version:** v1.9.6
+**Last updated:** 2025-06-07
 
 **Maintainer:** AI Studio QA / Dev Agent System  
 

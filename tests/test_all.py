@@ -249,6 +249,29 @@ class TestModernScalping(unittest.TestCase):
         self.assertIsInstance(trades, pd.DataFrame)
 
     @unittest.skipUnless(pandas_available and numpy_available and sklearn_available, 'requires pandas, numpy, sklearn')
+    def test_run_backtest_creates_equity_curve(self):
+        df = pd.DataFrame({
+            'close': np.linspace(1, 2, 80),
+            'high': np.linspace(1, 2, 80) + 0.1,
+            'low': np.linspace(1, 2, 80) - 0.1,
+            'timestamp': pd.date_range('2020-01-01', periods=80, freq='T')
+        })
+        df = nicegold.compute_features(df)
+        df = nicegold.train_signal_model(df)
+        cfg = {
+            'initial_capital': 100.0,
+            'risk_per_trade': 0.05,
+            'tp1_mult': 0.8,
+            'tp2_mult': 2.0,
+            'trade_start_hour': 0,
+            'trade_end_hour': 23,
+            'kill_switch_min': 70,
+        }
+        nicegold.run_backtest(df, cfg)
+        self.assertTrue(os.path.exists('equity_curve.csv'))
+        os.remove('equity_curve.csv')
+
+    @unittest.skipUnless(pandas_available and numpy_available and sklearn_available, 'requires pandas, numpy, sklearn')
     def test_load_config_and_time_filter(self):
         cfg = nicegold.load_config() if hasattr(nicegold, 'load_config') else {
             'trade_start_hour': 2,

@@ -1,10 +1,10 @@
 risk_per_trade: 0.05
 ml_estimators: 50
-signal_threshold: 0.6
+signal_threshold: 0.55
 initial_capital: 100.0
 trade_start_hour: 13
 trade_end_hour: 22
 kill_switch_min: 70
 tp1_mult: 0.8
 tp2_mult: 2.0
-target_threshold: 0.002
+target_threshold: 0.0015
