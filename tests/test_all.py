@@ -509,5 +509,13 @@ class TestEnhancedRunBacktest(unittest.TestCase):
             self.assertIn(col, trades.columns)
 
 
+class TestQAStepLogging(unittest.TestCase):
+    def test_qa_log_step_logs_info(self):
+        logger = nicegold.get_logger()
+        with self.assertLogs(logger, level='INFO') as cm:
+            nicegold.qa_log_step('test')
+        self.assertTrue(any('STEP: test' in msg for msg in cm.output))
+
+
 if __name__ == '__main__':  # pragma: no cover
     unittest.main()

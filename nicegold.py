@@ -36,8 +36,14 @@ max_drawdown_pct = 0.30
 partial_tp_ratio = 0.5
 cooldown_minutes = 0  # ยกเลิกช่วงพักการเทรด ไม่มี No-Trade Zone [Patch]
 entry_signal_threshold = 2
+
 def get_logger():
     return logger
+
+
+def qa_log_step(message: str) -> None:
+    """Log step-by-step QA messages for enterprise tracking."""
+    logger.info("STEP: %s", message)
 
 
 def optimize_memory(df: pd.DataFrame) -> pd.DataFrame:
@@ -625,6 +631,7 @@ def walk_forward_test(df, cfg, fold_days=60):
 def run_backtest_cli():  # pragma: no cover
     """Execute the realistic backtest when run as a script."""
     logger.debug("Running backtest CLI")
+    qa_log_step("Load data")
     # === โหลดและแปลงพ.ศ.เป็นค.ศ. ===
     df = pd.read_csv("/content/drive/MyDrive/NICEGOLD/XAUUSD_M1.csv")
     df.columns = [col.lower() for col in df.columns]
@@ -650,6 +657,7 @@ def run_backtest_cli():  # pragma: no cover
     df = calculate_spike_guard(df)
     df = validate_divergence(df)
     df = calculate_trend_confirm(df)
+    qa_log_step("Indicators calculated")
     # Compute RSI (14-period) for momentum indication
     df['RSI'] = df['close'].rolling(14).apply(
         lambda x: 100 - 100 / (1 + (np.mean(np.clip(np.diff(x), 0, None)) /
@@ -683,9 +691,11 @@ def run_backtest_cli():  # pragma: no cover
     rsi_th = param.get('rsi_thresh', 50)
     df = generate_entry_signal(df, gain_z_thresh=gain_z_th, rsi_thresh=rsi_th)
     df = apply_wave_macd_cross_entry(df)
+    qa_log_step("Signals generated")
     logger.debug(df[['timestamp', 'entry_signal', 'Wave_Phase', 'RSI', 'divergence']].tail(30))  # [Patch G-Fix1] signal debug tail
 
 # === Backtest ปรับปรุง: ถือไม้เดียว, TP:SL = 2:1 (ใช้ ATR) ===
+    qa_log_step("Run backtest")
     initial_capital = 100.0
     capital = initial_capital
     risk_per_trade = 0.05  # ความเสี่ยงต่อไม้ 5% ของทุน (เรียนรู้จากผลการเทรด/ปรับขนาดตามทุน) [Patch]
@@ -1120,6 +1130,8 @@ def run_backtest_cli():  # pragma: no cover
         except Exception as e:
             print(f"❌ ไม่สามารถบันทึกกราฟ equity curve ได้: {e}")
 
+    qa_log_step("Backtest finished")
+
 
 def generate_smart_signal(df):
     """สร้างสัญญาณเข้าซื้อแบบให้คะแนนหลายเงื่อนไข"""
@@ -1206,6 +1218,7 @@ def backtest_with_partial_tp(df):
 def run():
     """โหลดข้อมูลและรัน backtest แบบย่อ"""
     logger.debug("Running simple integration")
+    qa_log_step("Load sample data")
     df = pd.read_csv("XAUUSD_M1.csv")
     df.columns = [c.lower() for c in df.columns]
     year = df['date'].astype(str).str[:4].astype(int) - 543
@@ -1215,12 +1228,15 @@ def run():
     df['ema35'] = df['close'].ewm(span=35).mean()
     df['RSI'] = df['close'].rolling(14).apply(lambda x: 100 - 100 / (1 + (np.mean(np.clip(np.diff(x), 0, None)) / (np.mean(np.clip(-np.diff(x), 0, None)) + 1e-6))))
     df['atr'] = (df['high'] - df['low']).rolling(14).mean()
+    qa_log_step("Indicators computed")
     # Drop rows with NaN indicators so backtest starts with valid values
     before = len(df)
     df = df.dropna(subset=["atr", "RSI", "ema35"])
     logger.debug("Dropped %d rows with NaN indicators before backtest", before - len(df))
     df = generate_smart_signal(df)
+    qa_log_step("Signals generated")
     trades, final_capital = backtest_with_partial_tp(df)
+    qa_log_step("Sample backtest completed")
     print(f"Final Equity: {final_capital:.2f}, Total Trades: {len(trades)}")
     print(trades.tail())
 
