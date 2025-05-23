@@ -119,3 +119,7 @@ agent.export_log(result_df, path="realistic_trade_log.csv")
 ### 📝 Patch v1.9.25
 - เพิ่มฟังก์ชัน `qa_log_step` สำหรับบันทึกขั้นตอนการทำงานระดับ QA
 - เรียกใช้งานใน `run_backtest_cli` และ `run`
+### 📝 Patch v1.9.26
+- เพิ่มชุดฟังก์ชัน SMC Multi-Timeframe (OB/FVG/Liquidity Grab)
+- เพิ่มฟังก์ชัน `detect_order_block`, `detect_fvg`, `detect_liquidity_grab`, `is_smc_entry`
+
