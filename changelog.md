@@ -229,3 +229,9 @@
 ### Fixed
 - แก้การแปลง timestamp ใน `load_csv_m15` และ `load_csv_m1` ให้รองรับวันที่ พ.ศ.
 
+## [v1.9.31] — 2025-07-01
+### Changed
+- ปรับปรุง `align_mtf_zones` ให้ใช้การแม็พแบบเวกเตอร์
+### Fixed
+- ยืนยันการแปลง timestamp ใน `load_csv_m15` และ `load_csv_m1`
+
