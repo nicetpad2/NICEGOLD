@@ -94,18 +94,45 @@ def is_strong_trend(df, i):
 
 
 def smart_entry_signal(df):
-    logger.info("[Patch] Generating entry signals: trend-only, min SL guard")
+    """Vectorized entry signal generation with trend and min SL guard."""
+    logger.info("[Patch] Vectorized entry signal (trend+min SL guard+fast)")
     df = df.copy()
     df['entry_signal'] = None
-    for i in range(len(df)):
-        if not is_strong_trend(df, i):
-            continue
-        if df['atr'].iloc[i] < min_sl_dist:
-            continue
-        if (df['ema_fast'].iloc[i] > df['ema_slow'].iloc[i]) and (df['rsi'].iloc[i] > 53):
-            df.at[df.index[i], 'entry_signal'] = 'buy'
-        if (df['ema_fast'].iloc[i] < df['ema_slow'].iloc[i]) and (df['rsi'].iloc[i] < 47):
-            df.at[df.index[i], 'entry_signal'] = 'sell'
+
+    # [Patch] 1. Mask เฉพาะช่วงที่ ATR > min_sl_dist, ADX > adx_thresh
+    mask_valid = (df['atr'] > min_sl_dist) & (df['adx'] > adx_thresh)
+
+    # [Patch] 2. สร้าง rolling trend mask (trend ต่อเนื่อง 15 แท่ง)
+    n_trend = 15
+    trend_up = (
+        (df['ema_fast'] > df['ema_slow'])
+        .rolling(n_trend, min_periods=n_trend)
+        .apply(lambda x: x.all(), raw=True).fillna(0)
+        .astype(bool)
+    )
+    trend_dn = (
+        (df['ema_fast'] < df['ema_slow'])
+        .rolling(n_trend, min_periods=n_trend)
+        .apply(lambda x: x.all(), raw=True).fillna(0)
+        .astype(bool)
+    )
+
+    # [Patch] 3. กรอง RSI ตามเทรนด์
+    entry_long = mask_valid & trend_up & (df['rsi'] > 53)
+    entry_short = mask_valid & trend_dn & (df['rsi'] < 47)
+
+    df.loc[entry_long, 'entry_signal'] = 'buy'
+    df.loc[entry_short, 'entry_signal'] = 'sell'
+
+    logger.info(
+        "[Patch] Entry signal counts: buy=%d, sell=%d",
+        (df['entry_signal'] == 'buy').sum(),
+        (df['entry_signal'] == 'sell').sum(),
+    )
+    logger.debug(
+        "Entry signals generated on indices: %s",
+        df[df['entry_signal'].notna()].index.tolist(),
+    )
     return df
 
 
