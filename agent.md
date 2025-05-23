@@ -29,7 +29,7 @@
 | `generate_log()` | Export `trade_log.csv` with entry/exit/timestamp/pnl/commission |
 
 ### ⚙️ Environment Assumptions:
-- Input data is from `XAUUSD_M1.csv` with Buddhist `Date` + `Timestamp`
+- Input data is from `/content/drive/MyDrive/NICEGOLD/XAUUSD_M1.csv` with Buddhist `Date` + `Timestamp`
 - 3-digit Gold broker logic: `1 pip = 0.01`, `80 point = 0.80`
 - Commission model is **per execution only**
 - Single position (no scaling / pyramiding)
@@ -38,7 +38,7 @@
 ### 🧩 Integration Format:
 ```python
 agent = ElliottMACDBacktestAgent()
-df = agent.load_data("XAUUSD_M1.csv")
+df = agent.load_data("/content/drive/MyDrive/NICEGOLD/XAUUSD_M1.csv")
 df = agent.calculate_indicators(df)
 df = agent.detect_elliott_wave_phase(df)
 signal_df = agent.generate_entry_score_signal(df)

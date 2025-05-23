@@ -71,3 +71,7 @@
 ## [v1.9.1] — 2025-06-02
 ### Changed
 - Integrate ModernScalpingXAUUSD logic into `nicegold.py`
+
+## [v1.9.2] — 2025-06-03
+### Changed
+- Updated CSV path to `/content/drive/MyDrive/NICEGOLD/XAUUSD_M1.csv`
