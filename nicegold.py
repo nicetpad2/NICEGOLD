@@ -776,6 +776,12 @@ def check_drawdown(capital: float, peak_capital: float, limit: float = 0.30) -> 
 def backtest_with_partial_tp(df):
     """ทดสอบกลยุทธ์พร้อม TP1 และเบรกอีเวน"""
     logger.debug("Starting simple backtest with partial TP")
+    # Remove rows with NaN indicators to avoid NaN-related issues
+    before = len(df)
+    df = df.dropna(subset=["atr", "RSI", "ema35"])
+    after = len(df)
+    logger.debug("Dropped %d rows with NaN indicators", before - after)
+
     capital = initial_capital
     peak = capital
     trades = []
@@ -840,6 +846,10 @@ def run():
     df['ema35'] = df['close'].ewm(span=35).mean()
     df['RSI'] = df['close'].rolling(14).apply(lambda x: 100 - 100 / (1 + (np.mean(np.clip(np.diff(x), 0, None)) / (np.mean(np.clip(-np.diff(x), 0, None)) + 1e-6))))
     df['atr'] = (df['high'] - df['low']).rolling(14).mean()
+    # Drop rows with NaN indicators so backtest starts with valid values
+    before = len(df)
+    df = df.dropna(subset=["atr", "RSI", "ema35"])
+    logger.debug("Dropped %d rows with NaN indicators before backtest", before - len(df))
     df = generate_smart_signal(df)
     trades, final_capital = backtest_with_partial_tp(df)
     print(f"Final Equity: {final_capital:.2f}, Total Trades: {len(trades)}")

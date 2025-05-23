@@ -114,3 +114,8 @@
 - Added `generate_smart_signal`, `check_drawdown`, `backtest_with_partial_tp`, and `run`
 - Extra unit tests for new features
 
+## [v1.9.10] — 2025-06-11
+### Fixed
+- Patch G-FixNoTrade-NaNATR: Drop rows with NaN indicators before backtest
+- `run()` now drops NaN ATR/RSI/EMA35 rows before generating signals
+
