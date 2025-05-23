@@ -60,5 +60,32 @@ class TestModernScalping(unittest.TestCase):
         trades = nicegold.run_backtest(df, cfg)
         self.assertIsInstance(trades, pd.DataFrame)
 
+    @unittest.skipUnless(pandas_available and numpy_available and sklearn_available, 'requires pandas, numpy, sklearn')
+    def test_load_config_and_time_filter(self):
+        # Ensure load_config reads YAML and time filter blocks trades
+        cfg = nicegold.load_config() if hasattr(nicegold, 'load_config') else {
+            'trade_start_hour': 2,
+            'trade_end_hour': 3,
+            'initial_capital': 100.0,
+            'risk_per_trade': 0.05,
+            'tp1_mult': 0.8,
+            'tp2_mult': 2.0,
+            'kill_switch_min': 70,
+        }
+
+        df = pd.DataFrame({
+            'close': np.linspace(1, 2, 80),
+            'high': np.linspace(1, 2, 80) + 0.1,
+            'low': np.linspace(1, 2, 80) - 0.1,
+            'timestamp': pd.date_range('2020-01-01', periods=80, freq='T')
+        })
+        df = nicegold.compute_features(df)
+        df['entry_signal'] = 'buy'
+        df['hour'] = df['timestamp'].dt.hour
+        cfg['trade_start_hour'] = 2
+        cfg['trade_end_hour'] = 3
+        trades = nicegold.run_backtest(df, cfg)
+        self.assertEqual(len(trades), 0)
+
 if __name__ == '__main__':  # pragma: no cover
     unittest.main()

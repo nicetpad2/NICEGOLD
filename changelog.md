@@ -75,3 +75,9 @@
 ## [v1.9.2] — 2025-06-03
 ### Changed
 - Updated CSV path to `/content/drive/MyDrive/NICEGOLD/XAUUSD_M1.csv`
+
+## [v1.9.3] — 2025-06-04
+### Added
+- Configurable parameters via `config.yaml`
+- Trade time filter (13:00–22:00 UTC)
+- Trade log export with drawdown tracking
