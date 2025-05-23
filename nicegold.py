@@ -74,6 +74,33 @@ def load_data(file_path=None):
     logger.debug("Loaded %d rows", len(df))
     return df
 
+# === แปลง CSV จาก ค.ศ. เป็น พ.ศ. ===
+def convert_csv_ad_to_be(input_csv, output_csv=None):
+    """แปลงคอลัมน์ Date ในไฟล์ CSV จาก ค.ศ. เป็น พ.ศ."""
+    logger.debug("Converting AD dates to BE from %s", input_csv)
+    df = pd.read_csv(input_csv)
+    df.columns = [c.lower() for c in df.columns]
+    if 'date' not in df.columns:
+        logger.debug("Date column missing")
+        if output_csv:
+            df.to_csv(output_csv, index=False)
+        return df
+
+    year = df['date'].astype(str).str.slice(0, 4).astype(int) + 543
+    month = df['date'].astype(str).str.slice(4, 6).astype(int)
+    day = df['date'].astype(str).str.slice(6, 8).astype(int)
+
+    df['date'] = (
+        year.astype(str)
+        + month.astype(str).str.zfill(2)
+        + day.astype(str).str.zfill(2)
+    )
+    logger.debug("Converted %d rows", len(df))
+    if output_csv:
+        df.to_csv(output_csv, index=False)
+        logger.debug("Saved converted CSV to %s", output_csv)
+    return df
+
 # === คำนวณ Indicator ===
 def calculate_macd(df, price_col='close', fast=12, slow=26, signal=9):
     logger.debug("Calculating MACD")

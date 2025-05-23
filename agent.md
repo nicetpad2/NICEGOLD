@@ -1,8 +1,8 @@
 # 🧠 agent.md — Gold AI: Elliott-MACD Realistic QA Agent
 
 
-**Version:** v1.9.10
-**Last updated:** 2025-06-11
+**Version:** v1.9.11
+**Last updated:** 2025-06-12
 
 
 **Maintainer:** AI Studio QA / Dev Agent System  
@@ -31,6 +31,7 @@
 | `run_backtest()` | Execute realistic backtest on last N rows (e.g., 200,000) |
 | `apply_constraints()` | Apply spread, slippage, and commission before evaluating PnL |
 | `generate_log()` | Export `trade_log.csv` with entry/exit/timestamp/pnl/commission |
+| `convert_csv_ad_to_be()` | Convert AD `Date` column to Buddhist Era |
 
 ### ⚙️ Environment Assumptions:
 - Input data is from `/content/drive/MyDrive/NICEGOLD/XAUUSD_M1.csv` with Buddhist `Date` + `Timestamp`
