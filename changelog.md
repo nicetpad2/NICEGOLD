@@ -102,6 +102,9 @@
 ### Added
 - Extensive debug logging across all functions
 
+
 ## [v1.9.8] — 2025-06-09
 ### Changed
 - Documented debug logging requirement in agent.md
+=======
+
