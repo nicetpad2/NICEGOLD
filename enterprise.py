@@ -3,6 +3,8 @@ import pandas as pd
 import numpy as np
 import os
 from datetime import datetime, timedelta
+from dataclasses import dataclass
+from typing import Optional
 import logging
 
 logger = logging.getLogger(__name__)
@@ -38,6 +40,166 @@ force_entry_gap = 300      # [Patch] Force entry หากไม่มี order 
 trade_start_hour = 8
 trade_end_hour = 23
 
+# --- Runtime utilities (merged) ---
+
+def is_in_session(current_time, sessions):
+    if sessions is None:
+        return True
+    hour = current_time.hour
+    for start, end in sessions:
+        if start <= hour < end:
+            return True
+    return False
+
+def breakout_condition(price_data):
+    return price_data.get('breakout', False)
+
+def get_pip_value(symbol="XAUUSD", lot=1):
+    return 0.1 * lot
+
+@dataclass
+class Order:
+    id: int
+    entry_price: float
+    stop_loss: Optional[float] = None
+    take_profit: Optional[float] = None
+    partial_tp_level: Optional[float] = None
+    move_sl_to_be_trigger: Optional[float] = None
+    trail_stop: bool = False
+    partial_taken: bool = False
+
+@dataclass
+class Portfolio:
+    equity: float
+    drawdown: float = 0.0
+    recovery_active: bool = False
+    last_trade_loss: bool = False
+    last_lot: float = 0.0
+    initial_lot: float = 0.1
+    last_direction: str = 'BUY'
+
+DD_THRESHOLD = 0.2
+SAFE_THRESHOLD = 0.05
+base_stop_distance = 1.0
+base_tp_distance = 2.0
+partial_tp_distance = 1.5
+break_even_distance = 1.0
+trailing_atr_multiplier = 1.0
+
+def generate_signal(price_data, indicators, *, current_time=None,
+                    allowed_sessions=None, intended_side='BUY', force_entry=False):
+    if force_entry:
+        logger.debug("Force entry active")
+        return True
+    session_ok = is_in_session(current_time, allowed_sessions)
+    trend_ok = (
+        indicators['EMA50'] > indicators['EMA200']
+        if intended_side == 'BUY'
+        else indicators['EMA50'] < indicators['EMA200']
+    )
+    momentum_ok = indicators['ADX'] > 25 and indicators.get('ADX_trend') == intended_side
+    if session_ok and trend_ok and momentum_ok and breakout_condition(price_data):
+        logger.debug(
+            "[Patch] Signal confirmed: session=%s, trend=%s, momentum=%s, breakout=True",
+            session_ok,
+            trend_ok,
+            momentum_ok,
+        )
+        return True
+    return False
+
+def calculate_position_size(equity, entry_price, stop_price, risk_pct):
+    risk_amount = equity * risk_pct
+    pip_value = get_pip_value(symbol="XAUUSD", lot=1)
+    stop_pips = abs(entry_price - stop_price) / pip_value
+    lot = risk_amount / (stop_pips * pip_value)
+    logger.debug(
+        "[Patch] Calculated position size = %.2f lots for risk %.1f%% and stop %.1f pips",
+        lot,
+        risk_pct * 100,
+        stop_pips,
+    )
+    return lot
+
+def set_stop_loss(order, price):
+    order.stop_loss = price
+
+def set_take_profit(order, price):
+    order.take_profit = price
+
+def close_position(order, portion=1.0):
+    logger.info("[Patch] Closing %.0f%% of order %s", portion * 100, order.id)
+
+def on_order_execute(order):
+    set_stop_loss(order, order.entry_price - base_stop_distance)
+    set_take_profit(order, order.entry_price + base_tp_distance)
+    logger.info(
+        "[Patch] Order %s executed: SL=%.2f, TP=%.2f",
+        order.id,
+        order.stop_loss,
+        order.take_profit,
+    )
+    order.partial_tp_level = order.entry_price + partial_tp_distance
+    order.move_sl_to_be_trigger = order.entry_price + break_even_distance
+    order.trail_stop = True
+    logger.debug(
+        "[Patch] Set partial TP at %.2f and BE trigger at %.2f",
+        order.partial_tp_level,
+        order.move_sl_to_be_trigger,
+    )
+
+def on_price_update(order, price, indicators=None):
+    if order.partial_tp_level and price >= order.partial_tp_level and not order.partial_taken:
+        close_position(order, portion=0.5)
+        order.partial_taken = True
+        logger.info(
+            "[Patch] Partial TP hit for order %s: closed 50%% at price %.2f",
+            order.id,
+            price,
+        )
+        if order.move_sl_to_be_trigger:
+            new_sl = order.entry_price
+            set_stop_loss(order, new_sl)
+            logger.info("[Patch] Moved SL to BE for order %s at %.2f", order.id, new_sl)
+    if order.trail_stop and price > order.entry_price and indicators:
+        trail_distance = trailing_atr_multiplier * indicators.get('ATR', 0)
+        new_sl = max(order.stop_loss, price - trail_distance)
+        if new_sl > order.stop_loss:
+            set_stop_loss(order, new_sl)
+            logger.debug(
+                "[Patch] Trailing SL updated for order %s to %.2f",
+                order.id,
+                new_sl,
+            )
+
+def open_position(lot_size, direction):
+    logger.info("[Patch] Opening position %s %.2f lots", direction, lot_size)
+
+def manage_recovery(portfolio: Portfolio, price_data=None, indicators=None):
+    if portfolio.drawdown > DD_THRESHOLD:
+        if not portfolio.recovery_active:
+            portfolio.recovery_active = True
+            logger.warning(
+                "[Patch] Activating Recovery Mode at drawdown %.1f%%",
+                portfolio.drawdown * 100,
+            )
+        base_lot = portfolio.initial_lot
+        if portfolio.last_trade_loss:
+            base_lot = max(base_lot, portfolio.last_lot)
+        if generate_signal(price_data or {}, indicators or {}, current_time=datetime.now(), allowed_sessions=None, intended_side=portfolio.last_direction.lower()) and portfolio.recovery_active:
+            open_position(lot_size=base_lot, direction=portfolio.last_direction)
+            logger.info(
+                "[Patch] Recovery trade opened with lot=%.2f in direction %s",
+                base_lot,
+                portfolio.last_direction,
+            )
+    elif portfolio.recovery_active and portfolio.drawdown < SAFE_THRESHOLD:
+        portfolio.recovery_active = False
+        logger.info(
+            "[Patch] Exit Recovery Mode, drawdown improved to %.1f%%",
+            portfolio.drawdown * 100,
+        )
+
 def load_data(path):
     logger.info("[Patch] Loading data: %s", path)
     df = pd.read_csv(path)
@@ -50,6 +212,8 @@ def load_data(path):
             year.astype(str) + '-' + month + '-' + day + ' ' + df['timestamp'],
             format='%Y-%m-%d %H:%M:%S'
         )
+    elif 'timestamp' in df.columns:
+        df['timestamp'] = pd.to_datetime(df['timestamp'])
     df = df.sort_values('timestamp').reset_index(drop=True)
     return df
 
@@ -80,21 +244,39 @@ def calc_indicators(df):
     df['adx'] = dx.rolling(adx_period).mean()
     return df
 
+
+def is_strong_trend(df, i):
+    """Check if strong trend using rolling EMA and ADX."""
+    if i < trend_lookback * 2:
+        return False
+    trend = (
+        (df['ema_fast'].iloc[i - trend_lookback + 1:i + 1] > df['ema_slow'].iloc[i - trend_lookback + 1:i + 1]).all()
+        or (df['ema_fast'].iloc[i - trend_lookback + 1:i + 1] < df['ema_slow'].iloc[i - trend_lookback + 1:i + 1]).all()
+    )
+    adx = df['adx'].iloc[i] > adx_thresh
+    atr_high = df['atr'].iloc[i] > df['atr'].rolling(1000).median().iloc[i] * 1.2
+    return trend and (adx or atr_high)
+
 def smart_entry_signal(df):
     logger.info("[Patch] Vectorized entry signal (trend+min SL guard+relax+force entry)")
     df = df.copy()
     df['entry_signal'] = None
 
     # [Patch] 1. Relax ATR/ADX Guard (และกรองเฉพาะช่วงเวลาสำคัญ)
+    session_mask = True
+    if 'timestamp' in df.columns:
+        ts = pd.to_datetime(df['timestamp'])
+        session_mask = (
+            (ts.dt.hour >= trade_start_hour) & (ts.dt.hour < trade_end_hour)
+        )
     mask_valid = (
-        (df['atr'] > min_sl_dist * 0.7) &
-        (df['adx'] > adx_thresh)
-        & (df['timestamp'].dt.hour >= trade_start_hour)
-        & (df['timestamp'].dt.hour < trade_end_hour)
+        (df['atr'] > min_sl_dist * 0.7)
+        & (df['adx'] > adx_thresh)
+        & session_mask
     )
 
-    # [Patch] 2. Rolling trend mask (trend สั้นลง 7 bar)
-    n_trend = 7
+    # [Patch] 2. Rolling trend mask (trend 15 bar for stability)
+    n_trend = 15
     trend_up = (
         (df['ema_fast'] > df['ema_slow'])
         .rolling(n_trend, min_periods=n_trend)
@@ -110,27 +292,29 @@ def smart_entry_signal(df):
 
     # [Patch] 3. RSI + multi-timeframe + relax wick filter (ผ่านมากขึ้น)
     def relax_wick(row):
-        price_range = max(row['high'] - row['low'], 1e-6)
-        upper_wick = (row['high'] - row['close']) / price_range
-        lower_wick = (row['close'] - row['low']) / price_range
-        # [Patch] Relax ให้ Wick ถึง 80% ผ่านได้
-        return upper_wick < 0.80 and lower_wick < 0.80
+        if {'high', 'low', 'close'}.issubset(row.index):
+            price_range = max(row['high'] - row['low'], 1e-6)
+            upper_wick = (row['high'] - row['close']) / price_range
+            lower_wick = (row['close'] - row['low']) / price_range
+            return upper_wick < 0.80 and lower_wick < 0.80
+        return True
 
+    htf_ok_long = True
+    htf_ok_short = True
+    if 'ema_fast_htf' in df.columns and 'ema_slow_htf' in df.columns:
+        htf_ok_long = df['ema_fast_htf'] > df['ema_slow_htf']
+        htf_ok_short = df['ema_fast_htf'] < df['ema_slow_htf']
     entry_long = (
-        mask_valid & trend_up & (df['rsi'] > 51) &
-        (df['ema_fast_htf'] > df['ema_slow_htf']) &
-        df.apply(relax_wick, axis=1)
+        mask_valid & trend_up & (df['rsi'] > 51) & htf_ok_long & df.apply(relax_wick, axis=1)
     )
     entry_short = (
-        mask_valid & trend_dn & (df['rsi'] < 49) &
-        (df['ema_fast_htf'] < df['ema_slow_htf']) &
-        df.apply(relax_wick, axis=1)
+        mask_valid & trend_dn & (df['rsi'] < 49) & htf_ok_short & df.apply(relax_wick, axis=1)
     )
     df.loc[entry_long, 'entry_signal'] = 'buy'
     df.loc[entry_short, 'entry_signal'] = 'sell'
 
     # [Patch] 4. Force Entry หากไม่มี signal เกิน force_entry_gap bar
-    last_entry = -force_entry_gap
+    last_entry = 0
     for i in range(len(df)):
         if pd.notna(df['entry_signal'].iloc[i]):
             last_entry = i
@@ -142,7 +326,10 @@ def smart_entry_signal(df):
                 else:
                     df.at[i, 'entry_signal'] = 'sell'
                 last_entry = i
-                logger.info("[Patch] Force Entry at %s", df['timestamp'].iloc[i])
+                if 'timestamp' in df.columns:
+                    logger.info("[Patch] Force Entry at %s", df['timestamp'].iloc[i])
+                else:
+                    logger.info("[Patch] Force Entry at index %s", i)
 
     logger.info(
         "[Patch] Entry signal counts: buy=%d, sell=%d",
