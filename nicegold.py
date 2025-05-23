@@ -34,7 +34,7 @@ initial_capital = 100.0
 risk_per_trade = 0.05  # เพิ่มความเสี่ยงต่อไม้เป็น 5% ของทุน เพื่อเร่งการเติบโต [Patch: Increase Risk]
 max_drawdown_pct = 0.30
 partial_tp_ratio = 0.5
-cooldown_minutes = 180
+cooldown_minutes = 0  # ยกเลิกช่วงพักการเทรด ไม่มี No-Trade Zone [Patch]
 entry_signal_threshold = 2
 def get_logger():
     return logger
@@ -435,43 +435,88 @@ def run_backtest(df, cfg):
     for i in range(20, len(df)):
         row = df.iloc[i]
         equity_curve.append({'timestamp': row['timestamp'], 'equity': capital})
+
         if not (cfg.get('trade_start_hour', 0) <= row.get('hour', 0) <= cfg.get('trade_end_hour', 23)):
             continue
-        if position is None and row['entry_signal'] == 'buy':
-            logger.debug("Open long position at %s", row['timestamp'])
-            entry_price = row['close'] + 0.10
-            sl = entry_price - row['atr']
-            tp1 = entry_price + row['atr'] * cfg.get('tp1_mult', 0.8)
-            tp2 = entry_price + row['atr'] * cfg.get('tp2_mult', 2.0)
-            lot = min(0.01, capital * cfg.get('risk_per_trade', 0.05) / max(entry_price - sl, 1e-6))
-            position = {
-                'entry_time': row['timestamp'],
-                'entry': entry_price,
-                'sl': sl,
-                'tp1': tp1,
-                'tp2': tp2,
-                'lot': lot,
-                'tp1_hit': False,
-                'capital_before': capital,
-            }
-        elif position:
-            if not position['tp1_hit'] and row['high'] >= position['tp1']:
-                pnl = position['lot'] * (position['tp1'] - position['entry']) * 100
+
+        base_risk = cfg.get('risk_per_trade', 0.05)
+        recent = trades[-3:]
+        consecutive_wins = sum(t['pnl'] > 0 for t in recent)
+        consecutive_losses = sum(t['pnl'] < 0 for t in recent)
+        if consecutive_wins >= 3:
+            risk = min(base_risk * 1.5, 0.10)
+        elif consecutive_losses >= 3:
+            risk = max(base_risk * 0.5, 0.02)
+        else:
+            risk = base_risk
+
+        if 'volume' in df.columns:
+            vol_mean = df['volume'].rolling(20).mean().iloc[i]
+        else:
+            vol_mean = 0
+        volatility_high = (
+            (row['high'] - row['low']) > 3 * row['atr'] or
+            (row.get('volume', 0) > 2 * vol_mean)
+        )
+
+        if position:
+            if not position['tp1_hit'] and (
+               (position['type'] == 'long' and row['high'] >= position['tp1']) or
+               (position['type'] == 'short' and row['low'] <= position['tp1']) ):
+                pnl = position['lot'] * cfg.get('partial_tp_ratio', 0.5) * (
+                    position['tp1'] - position['entry']) * (
+                        100 if position['type'] == 'long' else -100)
                 capital += pnl
                 position['tp1_hit'] = True
                 position['sl'] = position['entry']
-                trades.append({**position, 'exit': 'TP1', 'pnl': pnl, 'capital_after': capital, 'exit_time': row['timestamp']})
-            elif row['low'] <= position['sl']:
-                pnl = -position['lot'] * (position['entry'] - position['sl']) * 100
+                trades.append({**position, 'exit': 'TP1', 'pnl': pnl,
+                               'capital_after': capital,
+                               'exit_time': row['timestamp'],
+                               'reason_exit': 'Partial TP hit'})
+                logger.info(f"Partial TP hit at {position['tp1']:.2f}, lot {position['lot']*cfg.get('partial_tp_ratio',0.5)} closed [Patch]")
+            elif (
+                (position['type'] == 'long' and row['low'] <= position['sl']) or
+                (position['type'] == 'short' and row['high'] >= position['sl'])
+            ):
+                pnl = (
+                    -position['lot'] * (position['entry'] - position['sl']) * 100
+                    if position['type'] == 'long'
+                    else position['lot'] * (position['entry'] - position['sl']) * 100
+                )
                 capital += pnl
-                trades.append({**position, 'exit': 'SL', 'pnl': pnl, 'capital_after': capital, 'exit_time': row['timestamp']})
+                trades.append({**position, 'exit': 'SL', 'pnl': pnl,
+                               'capital_after': capital,
+                               'exit_time': row['timestamp'],
+                               'reason_exit': 'Stop Loss hit'})
+                logger.info(f"Stop Loss hit at {position['sl']:.2f}, exit trade [Patch]")
                 position = None
-            elif row['high'] >= position['tp2']:
-                pnl = position['lot'] * (position['tp2'] - position['entry']) * 100
+            elif (
+                (position['type'] == 'long' and row['high'] >= position['tp2']) or
+                (position['type'] == 'short' and row['low'] <= position['tp2'])
+            ):
+                pnl = position['lot'] * (position['tp2'] - position['entry']) * (
+                    100 if position['type'] == 'long' else -100)
                 capital += pnl
-                trades.append({**position, 'exit': 'TP2', 'pnl': pnl, 'capital_after': capital, 'exit_time': row['timestamp']})
-                logger.debug("Exit position at %s with TP2", row['timestamp'])
+                trades.append({**position,
+                               'exit': ('TP2' if position['tp1_hit'] else 'TP'),
+                               'pnl': pnl,
+                               'capital_after': capital,
+                               'exit_time': row['timestamp'],
+                               'reason_exit': 'Final Take Profit hit'})
+                logger.info(f"Final TP hit at {position['tp2']:.2f}, close remaining position [Patch]")
                 position = None
+
+            if position and position['tp1_hit']:
+                if position['type'] == 'long':
+                    new_sl = max(position['sl'], min(df['low'].iloc[i-3:i]))
+                    new_sl = max(new_sl, row['close'] - row['atr'] * 1.0)
+                else:
+                    new_sl = min(position['sl'], max(df['high'].iloc[i-3:i]))
+                    new_sl = min(new_sl, row['close'] + row['atr'] * 1.0)
+                if (position['type'] == 'long' and new_sl > position['sl']) or (
+                    position['type'] == 'short' and new_sl < position['sl']):
+                    position['sl'] = new_sl
+                    logger.debug(f"Trailing SL adjusted to {new_sl:.2f} at {row['timestamp']}")
 
             drawdown = (peak_equity - capital) / peak_equity
             if capital > peak_equity:
@@ -479,11 +524,45 @@ def run_backtest(df, cfg):
             else:
                 max_drawdown = max(max_drawdown, drawdown)
 
-            if capital < cfg.get('kill_switch_min', 70):
-                logger.debug("Kill switch triggered")
+            if drawdown * 100 >= cfg.get('max_drawdown_pct', 30):
+                logger.warning("Kill switch triggered - Drawdown {:.2%}".format(drawdown))
                 break
 
+        if position is None:
+            if volatility_high:
+                logger.debug("High volatility detected, skip new entries this bar")
+                continue
+            if row['entry_signal'] in ['buy', 'sell']:
+                logger.debug("Open long position at %s", row['timestamp'])
+                direction = row['entry_signal']
+                entry_price = row['close'] + (0.10 if direction == 'buy' else -0.10)
+                if direction == 'buy':
+                    recent_swing_low = df['low'].iloc[i-5:i].min()
+                    sl = min(entry_price - row['atr'], recent_swing_low - 0.10)
+                else:
+                    recent_swing_high = df['high'].iloc[i-5:i].max()
+                    sl = max(entry_price + row['atr'], recent_swing_high + 0.10)
+                tp1 = entry_price + (row['atr'] * cfg.get('tp1_mult', 0.8) * (1 if direction == 'buy' else -1))
+                tp2 = entry_price + (row['atr'] * cfg.get('tp2_mult', 2.0) * (1 if direction == 'buy' else -1))
+                lot = min(0.01, capital * risk / max(abs(entry_price - sl), 1e-6))
+                position = {
+                    'entry_time': row['timestamp'],
+                    'entry': entry_price,
+                    'sl': sl,
+                    'tp1': tp1,
+                    'tp2': tp2,
+                    'lot': lot,
+                    'tp1_hit': False,
+                    'capital_before': capital,
+                    'type': 'long' if direction == 'buy' else 'short',
+                    'reason_entry': row.get('signal_type', 'SMC'),
+                    'risk_price': abs(entry_price - sl),
+                    'risk_amount': capital * risk
+                }
+
     df_trades = pd.DataFrame(trades)
+    if 'drawdown' not in df_trades.columns:
+        df_trades['drawdown'] = 0.0
     df_trades.to_csv('trade_log.csv', index=False)
     df_equity = pd.DataFrame(equity_curve)
     df_equity.to_csv('equity_curve.csv', index=False)
