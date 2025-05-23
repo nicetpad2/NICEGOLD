@@ -88,5 +88,49 @@ class TestEnterprise(unittest.TestCase):
         for f in curves:
             os.remove(f)
 
+    def test_add_m15_context_to_m1(self):
+        df_m1 = pd.DataFrame({'timestamp': pd.date_range('2020-01-01', periods=3, freq='min'),
+                              'close': [1,2,3]})
+        df_m15 = pd.DataFrame({'timestamp': pd.date_range('2020-01-01', periods=1, freq='15min'),
+                               'ema_fast':[1.0],'ema_slow':[1.0],'rsi':[55]})
+        res = enterprise.add_m15_context_to_m1(df_m1, df_m15)
+        self.assertIn('m15_ema_fast', res.columns)
+
+    def test_smart_entry_signal_multi_tf(self):
+        df = pd.DataFrame({
+            'ema_fast':[2,2], 'ema_slow':[1,1], 'rsi':[60,60],
+            'm15_ema_fast':[2,2], 'm15_ema_slow':[1,1], 'm15_rsi':[60,60]
+        })
+        res = enterprise.smart_entry_signal_multi_tf(df)
+        self.assertEqual(res['entry_signal'].iloc[0], 'buy')
+
+    def test_run_backtest_multi_tf_outputs(self):
+        df1 = pd.DataFrame({
+            'timestamp': pd.date_range('2020-01-01', periods=30, freq='min'),
+            'open': np.linspace(1,1.3,30),
+            'high': np.linspace(1,1.3,30)+0.1,
+            'low': np.linspace(1,1.3,30)-0.1,
+            'close': np.linspace(1,1.3,30)
+        })
+        df2 = pd.DataFrame({
+            'timestamp': pd.date_range('2020-01-01', periods=3, freq='15min'),
+            'open':[1,1.1,1.2],
+            'high':[1.1,1.2,1.3],
+            'low':[0.9,1.0,1.1],
+            'close':[1,1.1,1.2]
+        })
+        df1.to_csv('tmp1.csv', index=False)
+        df2.to_csv('tmp2.csv', index=False)
+        enterprise.TRADE_DIR = '.'
+        enterprise.run_backtest_multi_tf('tmp1.csv','tmp2.csv')
+        os.remove('tmp1.csv')
+        os.remove('tmp2.csv')
+        logs = [f for f in os.listdir('.') if f.startswith('trade_log_')]
+        for f in logs:
+            os.remove(f)
+        curves = [f for f in os.listdir('.') if f.startswith('equity_curve_')]
+        for f in curves:
+            os.remove(f)
+
 if __name__ == '__main__':
     unittest.main()
