@@ -359,6 +359,24 @@ class TestNewFunctions(unittest.TestCase):
         trades, cap = nicegold.backtest_with_partial_tp(df)
         self.assertIsInstance(trades, pd.DataFrame)
 
+    @unittest.skipUnless(pandas_available and numpy_available, 'requires pandas and numpy')
+    def test_backtest_with_partial_tp_dropna(self):
+        df = pd.DataFrame({
+            'timestamp': pd.date_range('2020-01-01', periods=5, freq='T'),
+            'close': [1, 1.1, 1.2, 1.3, 1.4],
+            'high': [1, 1.2, 1.3, 1.4, 1.5],
+            'low': [0.9, 1.0, 1.1, 1.2, 1.3],
+            'atr': [np.nan, 0.1, 0.1, 0.1, 0.1],
+            'ema35': [np.nan, 1, 1, 1, 1],
+            'RSI': [np.nan, 60, 60, 60, 60],
+            'Wave_Phase': ['W.2'] * 5,
+            'macd': [1] * 5,
+            'signal': [0] * 5
+        })
+        df = nicegold.generate_smart_signal(df)
+        trades, cap = nicegold.backtest_with_partial_tp(df)
+        self.assertIsInstance(trades, pd.DataFrame)
+
 
 
 class TestLogging(unittest.TestCase):
