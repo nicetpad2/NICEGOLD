@@ -168,4 +168,12 @@
 ### Added
 - Patch G-Fix2: ระบบบันทึก trade log และ equity curve พร้อมพาธเต็มและ timestamp
 - บันทึกกราฟ Equity Curve หลังจบการทดสอบ
-\n## [v1.9.19] — 2025-06-19\n### Added\n- เพิ่มระบบตรวจสอบ drawdown และความผันผวนก่อนเข้าออเดอร์\n- ปรับขนาด TP และขนาด lot ตาม win/loss streak พร้อมเหตุผลการเข้าออเดอร์\n- Trailing SL ตาม ATR หลัง TP1\n
+## [v1.9.19] — 2025-06-19
+### Added
+- เพิ่มระบบตรวจสอบ drawdown และความผันผวนก่อนเข้าออเดอร์
+- ปรับขนาด TP และขนาด lot ตาม win/loss streak พร้อมเหตุผลการเข้าออเดอร์
+- Trailing SL ตาม ATR หลัง TP1
+## [v1.9.20] — 2025-06-20
+### Fixed
+- แก้ FutureWarning `fillna(method='bfill')`
+- แก้ NameError `current_drawdown` ใน `run_backtest_cli`
