@@ -163,3 +163,8 @@
 - ปรับ SL/TP ให้ใช้ ATR
 - เพิ่ม logger.info ติดตามสถานะเปิดสถานะและ TP1
 - ไม่หักค่าคอมมิชชั่นเมื่อ TP1
+
+## [v1.9.18] — 2025-06-18
+### Added
+- Patch G-Fix2: ระบบบันทึก trade log และ equity curve พร้อมพาธเต็มและ timestamp
+- บันทึกกราฟ Equity Curve หลังจบการทดสอบ
