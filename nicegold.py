@@ -550,7 +550,7 @@ def run_backtest_cli():  # pragma: no cover
     ret10 = df['close'].pct_change(10, fill_method=None)
     df['Gain_Z'] = ((ret10 - ret10.rolling(60).mean()) / (ret10.rolling(60).std() + 1e-6)).fillna(0)
     logger.debug("Gain_Z calculated")
-    df['atr'] = (df['high'] - df['low']).rolling(14).mean().fillna(method='bfill')
+    df['atr'] = (df['high'] - df['low']).rolling(14).mean().bfill()
     logger.debug("ATR calculated")
     # Label pattern signals: Breakout, Reversal, StrongTrend
     df['Pattern_Label'] = ''
@@ -605,7 +605,7 @@ def run_backtest_cli():  # pragma: no cover
     trades = []
     equity_curve = []
     peak_capital = capital  # ติดตามจุดสูงสุดของพอร์ตเพื่อคำนวณ drawdown [Patch]
-    atr_rolling_mean = df['atr'].rolling(50).mean().fillna(method='bfill').values  # ATR เฉลี่ย 50 แท่ง สำหรับตรวจสอบ volatility [Patch]
+    atr_rolling_mean = df['atr'].rolling(50).mean().bfill().values  # ATR เฉลี่ย 50 แท่ง สำหรับตรวจสอบ volatility [Patch]
 
     for i in range(1, len(df)):
         row = df.iloc[i]
@@ -621,6 +621,7 @@ def run_backtest_cli():  # pragma: no cover
             allow_reentry = True
             if prev_trade_result == 'SL' and (i - last_exit_idx) < cooldown_bars:
                 allow_reentry = False
+            current_drawdown = (peak_capital - capital) / peak_capital
             if current_drawdown > drawdown_threshold:
                 logger.debug(f"Skip entry due to high drawdown: {current_drawdown:.2%}")
                 allow_reentry = False

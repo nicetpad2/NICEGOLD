@@ -233,6 +233,11 @@ class TestNicegoldExtra(unittest.TestCase):
         src = inspect.getsource(nicegold.run_backtest_cli)
         self.assertIn("row['atr'] * sl_multiplier", src)
 
+    def test_run_backtest_cli_drawdown_var(self):
+        import inspect
+        src = inspect.getsource(nicegold.run_backtest_cli)
+        self.assertIn('current_drawdown =', src)
+
 
 class TestModernScalping(unittest.TestCase):
     @unittest.skipUnless(pandas_available and numpy_available and sklearn_available, 'requires pandas, numpy, sklearn')
