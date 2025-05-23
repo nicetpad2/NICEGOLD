@@ -168,3 +168,4 @@
 ### Added
 - Patch G-Fix2: ระบบบันทึก trade log และ equity curve พร้อมพาธเต็มและ timestamp
 - บันทึกกราฟ Equity Curve หลังจบการทดสอบ
+\n## [v1.9.19] — 2025-06-19\n### Added\n- เพิ่มระบบตรวจสอบ drawdown และความผันผวนก่อนเข้าออเดอร์\n- ปรับขนาด TP และขนาด lot ตาม win/loss streak พร้อมเหตุผลการเข้าออเดอร์\n- Trailing SL ตาม ATR หลัง TP1\n
