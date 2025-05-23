@@ -2,7 +2,7 @@
 
 
 
-**Version:** v1.9.29
+**Version:** v1.9.30
 
 
 
@@ -134,4 +134,7 @@ agent.export_log(result_df, path="realistic_trade_log.csv")
 ### 📝 Patch v1.9.29
 - กำหนดรูปแบบ timestamp ชัดเจนใน `load_data`, `run`, `load_csv_m15`, `load_csv_m1`
 - ป้องกันคำเตือน "Could not infer format" เมื่อ parse datetime
+
+### 📝 Patch v1.9.30
+- แก้การแปลง timestamp ใน `load_csv_m15` และ `load_csv_m1` ให้รองรับวันที่ พ.ศ.
 

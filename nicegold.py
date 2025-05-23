@@ -1232,27 +1232,45 @@ def run():
 
 # === SMC Multi-Timeframe Utilities ===
 def load_csv_m15(path: str = M15_PATH) -> pd.DataFrame:
-    """Load M15 CSV data"""
+    """Load M15 CSV data and convert BE date to AD datetime."""
     logger.debug("Loading M15 data from %s", path)
     df = pd.read_csv(path)
     df.columns = [c.lower() for c in df.columns]
-    df['timestamp'] = pd.to_datetime(
-        df['timestamp'],
-        format='%Y-%m-%d %H:%M:%S'
-    )
+    if 'date' in df.columns and 'timestamp' in df.columns:
+        date_str = df['date'].astype(str).str.zfill(8)
+        year = date_str.str[:4].astype(int) - 543
+        month = date_str.str[4:6]
+        day = date_str.str[6:8]
+        df['timestamp'] = pd.to_datetime(
+            year.astype(str) + '-' + month + '-' + day + ' ' + df['timestamp'],
+            format='%Y-%m-%d %H:%M:%S',
+            errors='coerce'
+        )
+        df.drop(columns=['date'], inplace=True)
+    else:
+        df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
     df['atr'] = (df['high'] - df['low']).rolling(14).mean()
     return df
 
 
 def load_csv_m1(path: str = M1_PATH) -> pd.DataFrame:
-    """Load M1 CSV data"""
+    """Load M1 CSV data and convert BE date to AD datetime."""
     logger.debug("Loading M1 data from %s", path)
     df = pd.read_csv(path)
     df.columns = [c.lower() for c in df.columns]
-    df['timestamp'] = pd.to_datetime(
-        df['timestamp'],
-        format='%Y-%m-%d %H:%M:%S'
-    )
+    if 'date' in df.columns and 'timestamp' in df.columns:
+        date_str = df['date'].astype(str).str.zfill(8)
+        year = date_str.str[:4].astype(int) - 543
+        month = date_str.str[4:6]
+        day = date_str.str[6:8]
+        df['timestamp'] = pd.to_datetime(
+            year.astype(str) + '-' + month + '-' + day + ' ' + df['timestamp'],
+            format='%Y-%m-%d %H:%M:%S',
+            errors='coerce'
+        )
+        df.drop(columns=['date'], inplace=True)
+    else:
+        df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
     df['atr'] = (df['high'] - df['low']).rolling(14).mean()
     return df
 
