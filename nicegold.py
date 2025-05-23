@@ -621,7 +621,7 @@ def run_backtest_cli():  # pragma: no cover
     drawdown_threshold = 0.20      # ระงับการเข้าออเดอร์ใหม่หากทุนลดลงมากกว่า 20% จากจุดสูงสุด (DD 20%) [Patch: OMS Kill-Switch]
     extreme_vol_factor = 2.0       # ไม่เข้าออเดอร์หาก ATR > 2 เท่าของ ATR เฉลี่ย [Patch]
 
-    kill_switch_threshold = 50.0  # หยุดเทรดทั้งหมดหากทุนลดต่ำกว่า $50 (50% ของเริ่มต้น) [Patch]
+    kill_switch_threshold = 50.0  # [Patch 1] Stop trading if equity falls below $50 (50% drawdown)
     kill_switch_triggered = False
     cooldown_bars = 1    # ต้องรออย่างน้อย 1 แท่ง (1 นาที) หลัง Stop Loss ก่อนเข้าใหม่ (Cooldown) [Patch: Loss Cooldown]
     last_entry_idx = -cooldown_bars
@@ -646,11 +646,18 @@ def run_backtest_cli():  # pragma: no cover
         row = df.iloc[i]
         equity_curve.append({'timestamp': row['timestamp'], 'equity': capital})
 
+        # [Patch 2] Global kill switch check
+        if not kill_switch_triggered and capital <= kill_switch_threshold:
+            kill_switch_triggered = True
+            logger.warning(f"Kill switch triggered at equity ${capital:.2f}. Stopping trading.")
+        if kill_switch_triggered:
+            break  # exit the backtest loop if account drawdown exceeds threshold
+
         if i % 5000 == 0:
             position = None  # รีเซ็ตสถานะทุก ๆ 5000 แท่ง (ประมาณรายเดือน) ป้องกันถือออเดอร์ข้ามช่วงเวลายาว [Patch]
 
         if row.get('spike_score', 0) > 0.75:
-            continue  # ข้ามแท่งที่มีสัญญาณ "Spike" ความผันผวนสูงผิดปกติ (กรองสัญญาณหลอก) [Patch: Volatility Guard]
+            continue  # [Patch 3] Volatility spike detected, skip this minute bar
 
         if position is None:
             allow_reentry = True
@@ -670,7 +677,7 @@ def run_backtest_cli():  # pragma: no cover
                     continue
                 if not is_confirm_bar(df, i, row['entry_signal']):
                     continue
-                # เข้าใหม่เฉพาะช่วงเวลาตลาดหลักที่มีสภาพคล่องสูง (13:00-22:00) [Patch]
+                # [Patch 4] Enter only during high-liquidity hours (13:00-22:00)
                 hour = row['timestamp'].hour
                 if hour < 13 or hour > 22:
                     continue
@@ -691,15 +698,20 @@ def run_backtest_cli():  # pragma: no cover
                 # คำนวณขนาดสัญญา (lot) ตามความเสี่ยงที่ยอมรับ และปรับตามสตรีคชนะ/แพ้
                 lot_size = min(risk_amount / distance, 0.30)
                 if consecutive_loss >= 2:
-                    lot_size *= recovery_multiplier  # แพ้ติดกันหลายครั้ง -> ลดขนาดไม้ลง (risk-off) [Patch]
+                    lot_size *= recovery_multiplier  # [Patch 5] reduce size after 2+ losses (recovery mode)
                 if consecutive_win >= 2:
-                    lot_size *= win_streak_boost    # ชนะติดกัน -> เพิ่มขนาดไม้ (ใช้กำไรเพิ่มพอร์ต) [Patch]
+                    lot_size *= win_streak_boost    # [Patch 5] boost size after 2+ wins (ride winning streak)
 
                 factor_by_streak = 1.0
                 if consecutive_loss >= 3:
                     factor_by_streak *= 0.75  # แพ้ต่อเนื่องนาน -> ลดเป้าหมายกำไรลง (เอาให้ออกได้) [Patch]
                 if consecutive_win >= 3:
                     factor_by_streak *= 1.25  # ชนะต่อเนื่องหลายไม้ -> เพิ่มเป้ากำไรให้เหมาะกับเทรนด์ [Patch]
+                # Momentum-based TP adjustment using ADX
+                if row.get('ADX', 0) > 25:
+                    factor_by_streak *= 1.2  # [Patch 6] strong trend momentum, increase TP target by 20%
+                elif row.get('ADX', 0) < 20:
+                    factor_by_streak *= 0.8  # [Patch 6] weak momentum, reduce TP target for quicker exit
                 tp = entry_price + (row['atr'] * tp_multiplier * factor_by_streak * (1 if position_type == 'long' else -1))
 
                 # ระบุเหตุผลการเข้าออเดอร์ (Log)
@@ -755,15 +767,19 @@ def run_backtest_cli():  # pragma: no cover
                     continue
                 lot_size = min(risk_amount / distance, 0.30)
                 if consecutive_loss >= 2:
-                    lot_size *= recovery_multiplier
+                    lot_size *= recovery_multiplier  # [Patch 5] reduce size after 2+ losses (recovery mode)
                 if consecutive_win >= 2:
-                    lot_size *= win_streak_boost
+                    lot_size *= win_streak_boost    # [Patch 5] boost size after 2+ wins (ride winning streak)
 
                 factor_by_streak = 1.0
                 if consecutive_loss >= 3:
-                    factor_by_streak *= 0.75
+                    factor_by_streak *= 0.75  # after 3 losses, shorten TP (secure quicker profit)
                 if consecutive_win >= 3:
-                    factor_by_streak *= 1.25
+                    factor_by_streak *= 1.25  # after 3 wins, extend TP (aim higher)
+                if row.get('ADX', 0) > 25:
+                    factor_by_streak *= 1.2  # [Patch 6] strong trend momentum, increase TP target by 20%
+                elif row.get('ADX', 0) < 20:
+                    factor_by_streak *= 0.8  # [Patch 6] weak momentum, reduce TP target for quicker exit
                 tp = entry_price + (row['atr'] * tp_multiplier * factor_by_streak * (1 if position_type == 'long' else -1))
 
                 reason_components = []
