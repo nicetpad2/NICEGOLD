@@ -266,3 +266,12 @@
 ### Changed
 - ปรับ `smart_entry_signal` เป็นเวกเตอร์ พร้อม Mask Trend และ Min SL Guard
 
+## [v1.9.38] — 2025-07-08
+### Added
+- ระบบ signal และ recovery ปรับปรุงตาม QA patch
+- คำนวณ position size ตามความเสี่ยง
+- Partial TP, BE, trailing stop และ Smart Recovery
+
+## [v1.9.39] — 2025-07-09
+### Changed
+- รวมโมดูล runtime เข้ากับ `enterprise.py` ลดไฟล์และใช้งานสะดวกขึ้น
