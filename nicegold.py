@@ -339,9 +339,9 @@ def compute_features(df):
     """คำนวณตัวชี้วัดสำหรับกลยุทธ์ ModernScalping"""
     logger.debug("Computing features for ML model")
     df = df.copy()
-    df['ret1'] = df['close'].pct_change()
-    df['ret5'] = df['close'].pct_change(5)
-    df['ret10'] = df['close'].pct_change(10)
+    df['ret1'] = df['close'].pct_change(fill_method=None)
+    df['ret5'] = df['close'].pct_change(5, fill_method=None)
+    df['ret10'] = df['close'].pct_change(10, fill_method=None)
     df['rsi'] = df['close'].rolling(14).apply(
         lambda x: 100 - 100 / (1 + np.mean(np.clip(np.diff(x), 0, None)) / (1e-6 + np.mean(np.clip(-np.diff(x), 0, None)))),
         raw=False,
@@ -361,7 +361,7 @@ def train_signal_model(df):
     if GradientBoostingClassifier is None:
         raise ImportError('scikit-learn is required for train_signal_model')
     df = df.copy()
-    df['future_ret'] = df['close'].shift(-5).pct_change(periods=5)
+    df['future_ret'] = df['close'].shift(-5).pct_change(periods=5, fill_method=None)
     df['target'] = (df['future_ret'] > 0.0015).astype(int)
     features = ['ret1', 'ret5', 'ret10', 'rsi', 'atr', 'trend']
     X = df[features]
@@ -539,10 +539,10 @@ def run_backtest_cli():  # pragma: no cover
                                     ((np.mean(np.clip(-np.diff(x), 0, None))) + 1e-6))),
         raw=False
     )
-    df['RSI'].fillna(50, inplace=True)
+    df['RSI'] = df['RSI'].fillna(50)  # [Patch G-Fix1] fix chained assignment warning
     logger.debug("RSI calculated")
     # Compute short-term momentum Z-score (Gain_Z) over 10-bar returns
-    ret10 = df['close'].pct_change(10)
+    ret10 = df['close'].pct_change(10, fill_method=None)
     df['Gain_Z'] = ((ret10 - ret10.rolling(60).mean()) / (ret10.rolling(60).std() + 1e-6)).fillna(0)
     logger.debug("Gain_Z calculated")
     # Label pattern signals: Breakout, Reversal, StrongTrend
@@ -564,6 +564,7 @@ def run_backtest_cli():  # pragma: no cover
     rsi_th = param.get('rsi_thresh', 50)
     df = generate_entry_signal(df, gain_z_thresh=gain_z_th, rsi_thresh=rsi_th)
     df = apply_wave_macd_cross_entry(df)
+    logger.debug(df[['timestamp', 'entry_signal', 'Wave_Phase', 'RSI', 'divergence']].tail(30))  # [Patch G-Fix1] signal debug tail
 
 # === Backtest สมจริง: ถือไม้เดียว, TP:SL = 2:1 ===
     initial_capital = 100.0
@@ -677,7 +678,7 @@ def run_backtest_cli():  # pragma: no cover
                 last_entry_idx = i
         else:
             if position['type'] == 'long':
-                commission = min((position['lot_size'] / lot_unit) * commission_per_lot, capital * 0.05)
+                commission = (position['lot_size'] / lot_unit) * commission_per_lot  # [Patch G-Fix1] charged once, realistic
                 if not position['tp1_hit'] and row['high'] >= position['entry'] + pip_size * sl_multiplier:
                     pnl = capital * risk_per_trade * 0.5
                     pnl -= commission
@@ -732,7 +733,7 @@ def run_backtest_cli():  # pragma: no cover
                     last_exit_idx = i
                     position = None
             elif position['type'] == 'short':
-                commission = min((position['lot_size'] / lot_unit) * commission_per_lot, capital * 0.05)
+                commission = (position['lot_size'] / lot_unit) * commission_per_lot  # [Patch G-Fix1] charged once at exit only
                 if not position['tp1_hit'] and row['low'] <= position['entry'] - pip_size * sl_multiplier:
                     pnl = capital * risk_per_trade * 0.5
                     pnl -= commission
