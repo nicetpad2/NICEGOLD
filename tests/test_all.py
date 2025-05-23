@@ -228,6 +228,11 @@ class TestNicegoldExtra(unittest.TestCase):
         self.assertIn('risk_per_trade = 0.05', src)
         self.assertIn('hour = row[\'timestamp\'].hour', src)
 
+    def test_run_backtest_cli_atr_usage(self):
+        import inspect
+        src = inspect.getsource(nicegold.run_backtest_cli)
+        self.assertIn("row['atr'] * sl_multiplier", src)
+
 
 class TestModernScalping(unittest.TestCase):
     @unittest.skipUnless(pandas_available and numpy_available and sklearn_available, 'requires pandas, numpy, sklearn')
