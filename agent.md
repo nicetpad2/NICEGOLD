@@ -26,3 +26,7 @@
 - ปรับ `calc_indicators` ให้กำหนด period ได้
 - เพิ่ม `run_backtest_multi_tf` สำหรับทดสอบหลายกรอบเวลา
 
+## v3.8 QA Patch
+- เพิ่มฟังก์ชัน `rsi` และปรับ `calc_indicators` ใช้งาน
+- `add_m15_context_to_m1` ปรับเป็น `merge_asof` ตามดัชนี
+
