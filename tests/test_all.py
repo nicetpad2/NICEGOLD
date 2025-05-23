@@ -584,6 +584,24 @@ class TestSMCMultiTimeframe(unittest.TestCase):
         self.assertIn("LG_Bull", res.columns)
 
     @unittest.skipUnless(pandas_available and numpy_available, "requires pandas and numpy")
+    def test_align_mtf_zones_flags(self):
+        df_m1 = pd.DataFrame({
+            "timestamp": pd.date_range("2020-01-01", periods=3, freq="min"),
+            "open": [1.0, 1.0, 1.0],
+            "high": [1.0, 1.0, 1.0],
+            "low": [1.0, 1.0, 1.0],
+            "close": [1.0, 1.01, 1.0],
+            "atr": [0.1, 0.1, 0.1]
+        })
+        ob = pd.DataFrame({"type": ["bullish"], "zone": [1.0], "idx": [0], "time": [df_m1["timestamp"].iloc[0]]})
+        fvg = pd.DataFrame({"type": ["bullish"], "low": [0.99], "high": [1.01], "idx": [0], "time": [df_m1["timestamp"].iloc[0]]})
+        lg = pd.DataFrame({"type": ["grab_long"], "zone": [1.0], "idx": [0], "time": [df_m1["timestamp"].iloc[0]]})
+        res = nicegold.align_mtf_zones(df_m1.copy(), ob, fvg, lg)
+        self.assertTrue(res['OB_Bull'].any())
+        self.assertTrue(res['FVG_Bull'].any())
+        self.assertTrue(res['LG_Bull'].any())
+
+    @unittest.skipUnless(pandas_available and numpy_available, "requires pandas and numpy")
     def test_is_smc_entry_buy(self):
         df = pd.DataFrame({
             "open": [1.0, 1.2, 0.8],

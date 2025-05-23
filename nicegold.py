@@ -1315,38 +1315,45 @@ def detect_liquidity_grab_m15(df_m15: pd.DataFrame, window: int = 20) -> pd.Data
     return pd.DataFrame(lg)
 
 
-def align_mtf_zones(df_m1: pd.DataFrame, ob_df: pd.DataFrame, fvg_df: pd.DataFrame, lg_df: pd.DataFrame) -> pd.DataFrame:
-    """Map M15 zones onto M1 bars"""
-    logger.debug("Aligning MTF zones")
-    df_m1 = df_m1.copy()
-    df_m1['OB_Bull'] = False
-    df_m1['OB_Bear'] = False
-    df_m1['FVG_Bull'] = False
-    df_m1['FVG_Bear'] = False
-    df_m1['LG_Bull'] = False
-    df_m1['LG_Bear'] = False
-    for i in range(len(df_m1)):
-        ts = df_m1['timestamp'].iloc[i]
-        price = df_m1['close'].iloc[i]
-        bull_ob = ob_df[(ob_df['type']=='bullish') & (ob_df['time'] <= ts)].tail(1)
-        if not bull_ob.empty and price <= bull_ob['zone'].values[0]*1.002 and price >= bull_ob['zone'].values[0]*0.998:
-            df_m1.at[df_m1.index[i], 'OB_Bull'] = True
-        bear_ob = ob_df[(ob_df['type']=='bearish') & (ob_df['time'] <= ts)].tail(1)
-        if not bear_ob.empty and price >= bear_ob['zone'].values[0]*0.998 and price <= bear_ob['zone'].values[0]*1.002:
-            df_m1.at[df_m1.index[i], 'OB_Bear'] = True
-        bull_fvg = fvg_df[(fvg_df['type']=='bullish') & (fvg_df['time'] <= ts)].tail(1)
-        if not bull_fvg.empty and price <= bull_fvg['high'].values[0]*1.002 and price >= bull_fvg['low'].values[0]*0.998:
-            df_m1.at[df_m1.index[i], 'FVG_Bull'] = True
-        bear_fvg = fvg_df[(fvg_df['type']=='bearish') & (fvg_df['time'] <= ts)].tail(1)
-        if not bear_fvg.empty and price >= bear_fvg['low'].values[0]*0.998 and price <= bear_fvg['high'].values[0]*1.002:
-            df_m1.at[df_m1.index[i], 'FVG_Bear'] = True
-        lg_bull = lg_df[(lg_df['type']=='grab_long') & (lg_df['time'] <= ts)].tail(1)
-        if not lg_bull.empty and abs(price-lg_bull['zone'].values[0])<0.5:
-            df_m1.at[df_m1.index[i], 'LG_Bull'] = True
-        lg_bear = lg_df[(lg_df['type']=='grab_short') & (lg_df['time'] <= ts)].tail(1)
-        if not lg_bear.empty and abs(price-lg_bear['zone'].values[0])<0.5:
-            df_m1.at[df_m1.index[i], 'LG_Bear'] = True
-    return df_m1
+def align_mtf_zones(
+    df_m1: pd.DataFrame,
+    ob_df: pd.DataFrame,
+    fvg_df: pd.DataFrame,
+    lg_df: pd.DataFrame,
+) -> pd.DataFrame:
+    """Map M15 zones onto M1 bars using vectorized joins for speed."""
+    logger.debug("Aligning MTF zones (vectorized)")
+    df = df_m1.copy()
+    df.sort_values('timestamp', inplace=True)
+
+    for col in ['OB_Bull', 'OB_Bear', 'FVG_Bull', 'FVG_Bear', 'LG_Bull', 'LG_Bear']:
+        df[col] = False
+
+    ob_bull = ob_df[ob_df['type'] == 'bullish'].copy()
+    ob_bear = ob_df[ob_df['type'] == 'bearish'].copy()
+    fvg_bull = fvg_df[fvg_df['type'] == 'bullish'].copy()
+    fvg_bear = fvg_df[fvg_df['type'] == 'bearish'].copy()
+    lg_bull = lg_df[lg_df['type'] == 'grab_long'].copy()
+    lg_bear = lg_df[lg_df['type'] == 'grab_short'].copy()
+
+    def mark_zone(df, zone_df, zone_col, price_col, buffer=0.002):
+        for _, row in zone_df.iterrows():
+            near = (
+                df['timestamp'] >= row['time']
+            ) & (
+                abs(df[price_col] - row.get('zone', row.get('high', 0)))
+                <= row.get('atr', 1) * buffer
+            )
+            df.loc[near, zone_col] = True
+
+    mark_zone(df, ob_bull, 'OB_Bull', 'close')
+    mark_zone(df, ob_bear, 'OB_Bear', 'close')
+    mark_zone(df, fvg_bull, 'FVG_Bull', 'close')
+    mark_zone(df, fvg_bear, 'FVG_Bear', 'close')
+    mark_zone(df, lg_bull, 'LG_Bull', 'close', buffer=0.5)
+    mark_zone(df, lg_bear, 'LG_Bear', 'close', buffer=0.5)
+
+    return df
 
 
 def is_mtf_smc_entry(row: pd.Series):
