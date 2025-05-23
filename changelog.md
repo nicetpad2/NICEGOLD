@@ -108,3 +108,9 @@
 - Documented debug logging requirement in agent.md
 =======
 
+## [v1.9.9] — 2025-06-10
+### Added
+- Patch G-RESTOREENTRYV1: Smart entry signals, OMS drawdown guard and partial TP
+- Added `generate_smart_signal`, `check_drawdown`, `backtest_with_partial_tp`, and `run`
+- Extra unit tests for new features
+

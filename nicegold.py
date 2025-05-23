@@ -23,6 +23,14 @@ except Exception:  # pragma: no cover - optional dependency
     train_test_split = None
 
 CONFIG_PATH = "config.yaml"
+
+# === Default Parameters for Simple Backtest ===
+initial_capital = 100.0
+risk_per_trade = 0.05
+max_drawdown_pct = 0.30
+partial_tp_ratio = 0.5
+cooldown_minutes = 180
+entry_signal_threshold = 2
 def get_logger():
     return logger
 
@@ -742,6 +750,100 @@ def run_backtest_cli():  # pragma: no cover
     print(df_trades.tail(10))
     if kill_switch_triggered:
         print("Kill switch activated: capital below threshold")
+
+
+def generate_smart_signal(df):
+    """สร้างสัญญาณเข้าซื้อแบบให้คะแนนหลายเงื่อนไข"""
+    logger.debug("Generating smart signal")
+    df = df.copy()
+    df['signal_score'] = 0
+    df['signal_score'] += (df['macd'] > df['signal']).astype(int)
+    df['signal_score'] += df['Wave_Phase'].isin(['W.2', 'W.3', 'W.5', 'W.B']).astype(int)
+    df['signal_score'] += (df['RSI'] > 50).astype(int)
+    df['signal_score'] += ((df['close'] >= df['ema35'] * 0.995) & (df['close'] <= df['ema35'] * 1.005)).astype(int)
+    df['entry_signal'] = np.where(df['signal_score'] >= entry_signal_threshold, 'buy', None)
+    logger.debug("Smart signal column added")
+    return df
+
+
+def check_drawdown(capital: float, peak_capital: float, limit: float = 0.30) -> bool:
+    """ตรวจสอบว่าเกินขีดจำกัด drawdown หรือไม่"""
+    drawdown = (peak_capital - capital) / peak_capital
+    logger.debug("Current drawdown: %s", drawdown)
+    return drawdown > limit
+
+
+def backtest_with_partial_tp(df):
+    """ทดสอบกลยุทธ์พร้อม TP1 และเบรกอีเวน"""
+    logger.debug("Starting simple backtest with partial TP")
+    capital = initial_capital
+    peak = capital
+    trades = []
+    position = None
+    last_entry_time = pd.Timestamp('2000-01-01')
+
+    for i in range(1, len(df)):
+        row = df.iloc[i]
+        ts = row['timestamp']
+        if position is None:
+            if row['entry_signal'] == 'buy' and (ts - last_entry_time).total_seconds() > cooldown_minutes * 60:
+                atr = row['atr']
+                entry = row['close'] + 0.10
+                sl = entry - atr
+                tp1 = entry + atr * 0.8
+                tp2 = entry + atr * 2.0
+                risk = capital * risk_per_trade
+                lot = risk / max(entry - sl, 1e-6)
+                position = {'entry': entry, 'sl': sl, 'tp1': tp1, 'tp2': tp2, 'lot': lot, 'tp1_hit': False, 'entry_time': ts}
+                last_entry_time = ts
+                logger.debug("Open position at %s", ts)
+        else:
+            high, low = row['high'], row['low']
+            if not position['tp1_hit'] and high >= position['tp1']:
+                gain = position['lot'] * (position['tp1'] - position['entry']) * partial_tp_ratio
+                capital += gain
+                position['sl'] = position['entry']
+                position['tp1_hit'] = True
+                trades.append({**position, 'exit': 'TP1', 'pnl': gain, 'time': ts})
+                logger.debug("TP1 hit at %s", ts)
+            elif high >= position['tp2']:
+                gain = position['lot'] * (position['tp2'] - position['entry']) * (1 - partial_tp_ratio)
+                capital += gain
+                trades.append({**position, 'exit': 'TP2', 'pnl': gain, 'time': ts})
+                position = None
+                logger.debug("TP2 hit at %s", ts)
+            elif low <= position['sl']:
+                loss = -position['lot'] * (position['entry'] - position['sl'])
+                capital += loss
+                trades.append({**position, 'exit': 'SL', 'pnl': loss, 'time': ts})
+                position = None
+                logger.debug("Stop loss hit at %s", ts)
+
+            if capital > peak:
+                peak = capital
+            if check_drawdown(capital, peak):
+                logger.debug("Drawdown limit reached. stop trading")
+                break
+
+    return pd.DataFrame(trades), capital
+
+
+def run():
+    """โหลดข้อมูลและรัน backtest แบบย่อ"""
+    logger.debug("Running simple integration")
+    df = pd.read_csv("XAUUSD_M1.csv")
+    df.columns = [c.lower() for c in df.columns]
+    year = df['date'].astype(str).str[:4].astype(int) - 543
+    month = df['date'].astype(str).str[4:6].astype(int)
+    day = df['date'].astype(str).str[6:8].astype(int)
+    df['timestamp'] = pd.to_datetime(year.astype(str) + '-' + month.astype(str).str.zfill(2) + '-' + day.astype(str).str.zfill(2) + ' ' + df['timestamp'])
+    df['ema35'] = df['close'].ewm(span=35).mean()
+    df['RSI'] = df['close'].rolling(14).apply(lambda x: 100 - 100 / (1 + (np.mean(np.clip(np.diff(x), 0, None)) / (np.mean(np.clip(-np.diff(x), 0, None)) + 1e-6))))
+    df['atr'] = (df['high'] - df['low']).rolling(14).mean()
+    df = generate_smart_signal(df)
+    trades, final_capital = backtest_with_partial_tp(df)
+    print(f"Final Equity: {final_capital:.2f}, Total Trades: {len(trades)}")
+    print(trades.tail())
 
 if __name__ == "__main__":  # pragma: no cover
     run_backtest_cli()

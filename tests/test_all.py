@@ -323,6 +323,44 @@ class TestWalkForward(unittest.TestCase):
         os.remove('trade_plot.png')
 
 
+class TestNewFunctions(unittest.TestCase):
+    @unittest.skipUnless(pandas_available and numpy_available, 'requires pandas and numpy')
+    def test_generate_smart_signal_column(self):
+        df = pd.DataFrame({
+            'macd': [1, 2, 3],
+            'signal': [0, 1, 2],
+            'Wave_Phase': ['W.2', 'W.3', 'W.5'],
+            'RSI': [55, 60, 65],
+            'close': [1, 2, 3],
+            'ema35': [1, 2, 3]
+        })
+        res = nicegold.generate_smart_signal(df.copy())
+        self.assertIn('entry_signal', res.columns)
+        self.assertEqual(res['entry_signal'].iloc[0], 'buy')
+
+    def test_check_drawdown_true(self):
+        self.assertTrue(nicegold.check_drawdown(70, 100, limit=0.2))
+
+    @unittest.skipUnless(pandas_available and numpy_available, 'requires pandas and numpy')
+    def test_backtest_with_partial_tp_returns(self):
+        df = pd.DataFrame({
+            'timestamp': pd.date_range('2020-01-01', periods=5, freq='T'),
+            'close': [1, 1.1, 1.2, 1.3, 1.4],
+            'high': [1, 1.2, 1.3, 1.4, 1.5],
+            'low': [0.9, 1.0, 1.1, 1.2, 1.3],
+            'atr': [0.1]*5,
+            'ema35': [1]*5,
+            'RSI': [60]*5,
+            'Wave_Phase': ['W.2']*5,
+            'macd': [1]*5,
+            'signal': [0]*5
+        })
+        df = nicegold.generate_smart_signal(df)
+        trades, cap = nicegold.backtest_with_partial_tp(df)
+        self.assertIsInstance(trades, pd.DataFrame)
+
+
+
 class TestLogging(unittest.TestCase):
     def test_get_logger(self):
         logger = nicegold.get_logger() if hasattr(nicegold, 'get_logger') else None
