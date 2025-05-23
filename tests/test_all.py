@@ -210,6 +210,18 @@ class TestNicegoldExtra(unittest.TestCase):
         source = inspect.getsource(nicegold.run_backtest_cli)
         self.assertIn('/content/drive/MyDrive/NICEGOLD/XAUUSD_M1.csv', source)
 
+    def test_run_backtest_cli_fillna_assignment(self):
+        import inspect
+        src = inspect.getsource(nicegold.run_backtest_cli)
+        self.assertIn("df['RSI'] = df['RSI'].fillna(50)", src)
+        self.assertNotIn("fillna(50, inplace=True)", src)
+
+    def test_run_backtest_cli_debug_tail_and_commission(self):
+        import inspect
+        src = inspect.getsource(nicegold.run_backtest_cli)
+        self.assertIn('signal debug tail', src)
+        self.assertNotIn('capital * 0.05', src)
+
 
 class TestModernScalping(unittest.TestCase):
     @unittest.skipUnless(pandas_available and numpy_available and sklearn_available, 'requires pandas, numpy, sklearn')
