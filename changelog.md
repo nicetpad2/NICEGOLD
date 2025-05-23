@@ -97,3 +97,7 @@
 - Patch G33.4: Equity curve tracking saved to `equity_curve.csv`
 - Patch G33.5: Reduced ML thresholds and added debug logging
 
+
+## [v1.9.7] — 2025-06-08
+### Added
+- Extensive debug logging across all functions

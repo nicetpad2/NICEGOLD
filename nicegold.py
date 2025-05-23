@@ -1,5 +1,8 @@
 import pandas as pd
 import numpy as np
+import logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 try:
     import matplotlib.pyplot as plt
@@ -20,20 +23,27 @@ except Exception:  # pragma: no cover - optional dependency
     train_test_split = None
 
 CONFIG_PATH = "config.yaml"
+def get_logger():
+    return logger
+
 
 
 def load_config(path: str = CONFIG_PATH):
     """Load configuration from YAML file"""
+    logger.debug("Loading config from %s", path)
     if yaml is None:
         raise ImportError("yaml is required for load_config")
     with open(path, "r") as f:
-        return yaml.safe_load(f)
+        config = yaml.safe_load(f)
+    logger.debug("Config keys: %s", list(config.keys()))
+    return config
 
 # === โหลดข้อมูล ===
 def load_data(file_path=None):
     """อ่านไฟล์ CSV ที่มีคอลัมน์ Date (พ.ศ.) และ Timestamp แล้วแปลงเป็น datetime"""
     if file_path is None:
         file_path = "XAUUSD_M1.csv"
+    logger.debug("Loading data from %s", file_path)
     df = pd.read_csv(file_path)
     df.columns = [c.lower() for c in df.columns]
     if 'date' not in df.columns or 'timestamp' not in df.columns:
@@ -53,10 +63,12 @@ def load_data(file_path=None):
     df['timestamp'] = pd.to_datetime(datetime_str, format='%Y-%m-%d %H:%M:%S')
     df['hour'] = df['timestamp'].dt.hour
     df = df.drop(columns=['date'])
+    logger.debug("Loaded %d rows", len(df))
     return df
 
 # === คำนวณ Indicator ===
 def calculate_macd(df, price_col='close', fast=12, slow=26, signal=9):
+    logger.debug("Calculating MACD")
     ema_fast = df[price_col].ewm(span=fast, adjust=False).mean()
     ema_slow = df[price_col].ewm(span=slow, adjust=False).mean()
     macd = ema_fast - ema_slow
@@ -64,9 +76,11 @@ def calculate_macd(df, price_col='close', fast=12, slow=26, signal=9):
     df['macd'] = macd
     df['signal'] = signal_line
     df['macd_hist'] = macd - signal_line
+    logger.debug("MACD columns added")
     return df
 
 def detect_macd_divergence(df, price_col='close'):
+    logger.debug("Detecting MACD divergence")
     price = df[price_col].values
     hist = df['macd_hist'].values
     divergence = [None, None]
@@ -78,27 +92,33 @@ def detect_macd_divergence(df, price_col='close'):
         else:
             divergence.append(None)
     df['divergence'] = divergence
+    logger.debug("Divergence column added")
     return df
 
 def macd_cross_signal(df):
+    logger.debug("Computing MACD cross signals")
     df['macd_cross_up'] = (df['macd'] > df['signal']) & (df['macd'].shift(1) <= df['signal'].shift(1))
     df['macd_cross_down'] = (df['macd'] < df['signal']) & (df['macd'].shift(1) >= df['signal'].shift(1))
     return df
 
 def apply_ema_trigger(df, price_col='close'):
+    logger.debug("Applying EMA trigger")
     df['ema35'] = df[price_col].ewm(span=35, adjust=False).mean()
     df['ema_touch'] = np.where(
         (df[price_col] <= df['ema35'] * 1.003) & (df[price_col] >= df['ema35'] * 0.997), True, False)
     return df
 
 def calculate_spike_guard(df, window=20):
+    logger.debug("Calculating spike guard")
     df['hl_range'] = df['high'] - df['low']
     df['volatility'] = df['hl_range'].rolling(window=window).std()
     df['spike'] = df['hl_range'] > df['volatility'] * 3
     df['spike_score'] = df['hl_range'] / (df['volatility'] * 3)
+    logger.debug("Spike guard columns added")
     return df
 
 def calculate_trend_confirm(df, price_col='close'):
+    logger.debug("Calculating trend confirmation")
     ema_fast = df[price_col].ewm(span=10, adjust=False).mean()
     ema_slow = df[price_col].ewm(span=35, adjust=False).mean()
     df['ema_fast'] = ema_fast
@@ -107,9 +127,11 @@ def calculate_trend_confirm(df, price_col='close'):
         ema_fast > ema_slow, 'up',
         np.where(ema_fast < ema_slow, 'down', 'flat')
     )
+    logger.debug("Trend confirm column added")
     return df
 
 def label_wave_phase(df):
+    logger.debug("Labeling wave phase")
     divergence = df.get('divergence', pd.Series(None, index=df.index, dtype=object))
     rsi = df.get('RSI', pd.Series(50, index=df.index, dtype=float))
     pattern = df.get('Pattern_Label', pd.Series('', index=df.index, dtype=object))
@@ -123,9 +145,11 @@ def label_wave_phase(df):
         else:
             phase.append(None)
     df['Wave_Phase'] = phase
+    logger.debug("Wave phase column added")
     return df
 
 def detect_elliott_wave_phase(df, price_col="close", rsi_col="RSI", divergence_col="divergence"):
+    logger.debug("Detecting Elliott wave phase")
     df = df.copy()
     df["Wave_Phase"] = None
 
@@ -145,17 +169,21 @@ def detect_elliott_wave_phase(df, price_col="close", rsi_col="RSI", divergence_c
         if wave_counter > 5:
             wave_counter = 1
 
+    logger.debug("Elliott wave phases labeled")
     return df
 
 def validate_divergence(df, hist_threshold=0.03):
+    logger.debug("Validating divergence")
     df['hist_strength'] = df['macd_hist'].diff().abs()
     df['valid_divergence'] = np.where(
         ((df['divergence'] == 'bullish') & (df['macd_hist'] > hist_threshold)) |
         ((df['divergence'] == 'bearish') & (df['macd_hist'] < -hist_threshold)),
         df['divergence'], None)
+    logger.debug("Valid divergence column added")
     return df
 
 def generate_entry_signal(df, gain_z_thresh=0.3, rsi_thresh=50):
+    logger.debug("Generating entry signal")
     gain_z = df.get('Gain_Z', pd.Series(0, index=df.index))
     rsi = df.get('RSI', pd.Series(50, index=df.index, dtype=float))
     pattern = df.get('Pattern_Label', pd.Series('', index=df.index, dtype=object))
@@ -190,9 +218,11 @@ def generate_entry_signal(df, gain_z_thresh=0.3, rsi_thresh=50):
 
     df['entry_signal'] = np.where(hybrid_buy, 'buy',
         np.where(hybrid_sell, 'sell', df['entry_signal']))
+    logger.debug("Entry signal column added")
     return df
 
 def generate_entry_signal_wave_enhanced(df, rsi_buy=52, rsi_sell=48, ema_col="ema35"):
+    logger.debug("Generating entry signal (wave enhanced)")
     df = df.copy()
     df["entry_signal"] = None
 
@@ -212,9 +242,11 @@ def generate_entry_signal_wave_enhanced(df, rsi_buy=52, rsi_sell=48, ema_col="em
 
     df.loc[buy_cond, "entry_signal"] = "buy"
     df.loc[sell_cond, "entry_signal"] = "sell"
+    logger.debug("Entry signal (wave enhanced) column added")
     return df
 
 def generate_entry_score_signal(df, ema_col="ema35", rsi_threshold=50):
+    logger.debug("Generating entry score signal")
     df = df.copy()
 
     df["entry_score"] = 0
@@ -234,9 +266,11 @@ def generate_entry_score_signal(df, ema_col="ema35", rsi_threshold=50):
 
     df.loc[buy_cond, "entry_signal"] = "buy"
     df.loc[sell_cond, "entry_signal"] = "sell"
+    logger.debug("Entry score and signal columns added")
     return df
 
 def apply_wave_macd_cross_entry(df, ema_col="ema35"):
+    logger.debug("Applying wave MACD cross entry")
     df = df.copy()
     for i in range(2, len(df)):
         if pd.isna(df.at[df.index[i], 'entry_signal']):
@@ -261,6 +295,7 @@ def apply_wave_macd_cross_entry(df, ema_col="ema35"):
     return df
 
 def should_force_entry(row, last_entry_time, current_time, cooldown=180):
+    logger.debug("Checking force entry conditions")
     if row['entry_signal'] is not None:
         return False
     if (current_time - last_entry_time).total_seconds() / 60 < cooldown:
@@ -272,6 +307,7 @@ def should_force_entry(row, last_entry_time, current_time, cooldown=180):
 # === Modern Scalping Strategy ===
 def compute_features(df):
     """คำนวณตัวชี้วัดสำหรับกลยุทธ์ ModernScalping"""
+    logger.debug("Computing features for ML model")
     df = df.copy()
     df['ret1'] = df['close'].pct_change()
     df['ret5'] = df['close'].pct_change(5)
@@ -285,11 +321,13 @@ def compute_features(df):
     df['atr'] = (df['high'] - df['low']).rolling(14).mean()
     df['trend'] = (df['ma5'] > df['ma20']).astype(int)
     df.dropna(inplace=True)
+    logger.debug("Feature columns added")
     return df
 
 
 def train_signal_model(df):
     """ฝึกโมเดล Machine Learning เพื่อสร้างสัญญาณ พร้อม debug log"""
+    logger.debug("Training ML signal model")
     if GradientBoostingClassifier is None:
         raise ImportError('scikit-learn is required for train_signal_model')
     df = df.copy()
@@ -309,16 +347,17 @@ def train_signal_model(df):
         'buy', None
     )
 
-    print("ENTRY_SIGNAL COUNTS:")
-    print(df['entry_signal'].value_counts(dropna=False))
-    print("Mean Signal Prob:", round(df['signal_prob'].mean(), 4))
-    print("Mean ATR:", round(df['atr'].mean(), 5))
+    logger.debug("ENTRY_SIGNAL COUNTS:\n%s", df['entry_signal'].value_counts(dropna=False))
+    logger.debug("Mean Signal Prob: %s", round(df['signal_prob'].mean(), 4))
+    logger.debug("Mean ATR: %s", round(df['atr'].mean(), 5))
 
+    logger.debug("Signal probabilities and entry signals generated")
     return df
 
 
 def run_backtest(df, cfg):
     """รันแบ็กเทสต์แบบง่ายสำหรับกลยุทธ์ ModernScalping"""
+    logger.debug("Starting backtest on %d rows", len(df))
     capital = cfg.get('initial_capital', 100.0)
     peak_equity = capital
     max_drawdown = 0.0
@@ -331,6 +370,7 @@ def run_backtest(df, cfg):
         if not (cfg.get('trade_start_hour', 0) <= row.get('hour', 0) <= cfg.get('trade_end_hour', 23)):
             continue
         if position is None and row['entry_signal'] == 'buy':
+            logger.debug("Open long position at %s", row['timestamp'])
             entry_price = row['close'] + 0.10
             sl = entry_price - row['atr']
             tp1 = entry_price + row['atr'] * cfg.get('tp1_mult', 0.8)
@@ -362,6 +402,7 @@ def run_backtest(df, cfg):
                 pnl = position['lot'] * (position['tp2'] - position['entry']) * 100
                 capital += pnl
                 trades.append({**position, 'exit': 'TP2', 'pnl': pnl, 'capital_after': capital, 'exit_time': row['timestamp']})
+                logger.debug("Exit position at %s with TP2", row['timestamp'])
                 position = None
 
             drawdown = (peak_equity - capital) / peak_equity
@@ -371,22 +412,23 @@ def run_backtest(df, cfg):
                 max_drawdown = max(max_drawdown, drawdown)
 
             if capital < cfg.get('kill_switch_min', 70):
-                print("Kill switch triggered")
+                logger.debug("Kill switch triggered")
                 break
 
     df_trades = pd.DataFrame(trades)
     df_trades.to_csv('trade_log.csv', index=False)
     df_equity = pd.DataFrame(equity_curve)
     df_equity.to_csv('equity_curve.csv', index=False)
-    print('Final Equity:', round(capital, 2))
-    print('Total Return:', capital - cfg.get('initial_capital', 100.0))
-    print('Total Trades:', len(df_trades))
+    logger.debug('Final Equity: %s', round(capital, 2))
+    logger.debug('Total Return: %s', capital - cfg.get('initial_capital', 100.0))
+    logger.debug('Total Trades: %s', len(df_trades))
     if 'pnl' in df_trades.columns and not df_trades.empty:
-        print('Win Rate:', (df_trades['pnl'] > 0).mean())
+        logger.debug('Win Rate: %s', (df_trades['pnl'] > 0).mean())
     else:
-        print('Win Rate: N/A (no trades)')
-    print('Max Drawdown:', round(max_drawdown * 100, 2), '%')
+        logger.debug('Win Rate: N/A (no trades)')
+    logger.debug('Max Drawdown: %s', round(max_drawdown * 100, 2))
     plot_trades(df, df_trades)
+    logger.debug("Backtest finished")
     return df_trades
 
 
@@ -394,6 +436,7 @@ def plot_trades(df, trades):
     """Save a trade visualization plot if matplotlib is available."""
     if plt is None:
         return
+    logger.debug("Plotting trades")
     plt.figure(figsize=(15, 6))
     plt.plot(df['timestamp'], df['close'], label='Price', alpha=0.6)
     for _, t in trades.iterrows():
@@ -409,10 +452,12 @@ def plot_trades(df, trades):
     plt.tight_layout()
     plt.savefig('trade_plot.png')
     plt.close()
+    logger.debug("Trade plot saved")
 
 
 def walk_forward_test(df, cfg, fold_days=60):
     """Execute walk-forward validation across multiple folds."""
+    logger.debug("Starting walk-forward test")
     step = int(fold_days * 24 * 60)
     total = len(df)
     fold = 0
@@ -422,15 +467,17 @@ def walk_forward_test(df, cfg, fold_days=60):
         fold_df = df.iloc[start:end].copy()
         fold_df = compute_features(fold_df)
         fold_df = train_signal_model(fold_df)
-        print(f"\n=== Fold {fold + 1} ===")
+        logger.debug("=== Fold %d ===", fold + 1)
         df_trades = run_backtest(fold_df, cfg)
         results.append(df_trades)
         fold += 1
+    logger.debug("Walk-forward test completed")
     return pd.concat(results) if results else pd.DataFrame()
 
 # === Apply Strategy ===
 def run_backtest_cli():  # pragma: no cover
     """Execute the realistic backtest when run as a script."""
+    logger.debug("Running backtest CLI")
     # === โหลดและแปลงพ.ศ.เป็นค.ศ. ===
     df = pd.read_csv("/content/drive/MyDrive/NICEGOLD/XAUUSD_M1.csv")
     df.columns = [col.lower() for col in df.columns]
