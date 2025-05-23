@@ -48,7 +48,16 @@ class TestModernScalping(unittest.TestCase):
         })
         df = nicegold.compute_features(df)
         df = nicegold.train_signal_model(df)
-        trades = nicegold.run_backtest(df)
+        cfg = {
+            'initial_capital': 100.0,
+            'risk_per_trade': 0.05,
+            'tp1_mult': 0.8,
+            'tp2_mult': 2.0,
+            'trade_start_hour': 0,
+            'trade_end_hour': 23,
+            'kill_switch_min': 70,
+        }
+        trades = nicegold.run_backtest(df, cfg)
         self.assertIsInstance(trades, pd.DataFrame)
 
 if __name__ == '__main__':  # pragma: no cover
