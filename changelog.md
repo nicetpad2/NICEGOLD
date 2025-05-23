@@ -279,3 +279,8 @@
 ### Fixed
 - รองรับการอ่านเวลารูปแบบ AM/PM ใน `load_data`, `load_csv_m1`, `load_csv_m15` และ `run_backtest_cli`
 
+## [v1.9.41] — 2025-07-11
+### Added
+- เพิ่ม `fallback_simple_signal` ใช้สร้างสัญญาณ MACD/RSI หากไม่มีสัญญาณ SMC
+- `run_backtest_cli` เรียกใช้ฟังก์ชันใหม่นี้ เพื่อเพิ่มจำนวนรายการเทรด
+

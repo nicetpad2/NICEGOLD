@@ -656,5 +656,21 @@ class TestMainBlockOrder(unittest.TestCase):
         self.assertGreater(pos_main, pos_load)
 
 
+class TestFallbackSimpleSignal(unittest.TestCase):
+    @unittest.skipUnless(pandas_available and numpy_available, 'requires pandas and numpy')
+    def test_fallback_simple_signal_generates_entry(self):
+        df = pd.DataFrame({
+            'macd_hist': [0.1, 0.2, 0.3],
+            'RSI': [60, 60, 60]
+        })
+        res = nicegold.fallback_simple_signal(df.copy())
+        self.assertTrue((res['entry_signal'] == 'buy').all())
+
+    def test_run_backtest_cli_calls_fallback(self):
+        import inspect
+        src = inspect.getsource(nicegold.run_backtest_cli)
+        self.assertIn('fallback_simple_signal', src)
+
+
 if __name__ == '__main__':  # pragma: no cover
     unittest.main()
