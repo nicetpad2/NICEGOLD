@@ -63,3 +63,11 @@
 ## [v1.8.0] — 2025-05-31
 ### Added
 - Patch G35: `load_data` now parses Buddhist `Date` and non zero-padded `Timestamp`
+
+## [v1.9.0] — 2025-06-01
+### Added
+- Patch G36: ModernScalpingXAUUSD v1.0 algorithm with ML signal and dynamic stop
+
+## [v1.9.1] — 2025-06-02
+### Added
+- Patch G37: ModernScalping code integrated into `nicegold.py`

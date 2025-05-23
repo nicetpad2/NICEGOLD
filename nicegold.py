@@ -1,5 +1,12 @@
 import pandas as pd
 import numpy as np
+import importlib.util
+
+SKLEARN_AVAILABLE = importlib.util.find_spec("sklearn") is not None
+if SKLEARN_AVAILABLE:
+    from sklearn.ensemble import GradientBoostingClassifier
+    from sklearn.preprocessing import StandardScaler
+    from sklearn.model_selection import train_test_split
 
 # === โหลดข้อมูล ===
 def load_data(file_path):
@@ -237,6 +244,98 @@ def should_force_entry(row, last_entry_time, current_time, cooldown=180):
     if row.get('spike_score', 0) > 0.6 and abs(row.get('Gain_Z', 0)) > 0.5 and row.get('Pattern_Label', '') in ['Breakout', 'StrongTrend']:
         return True
     return False
+
+# === Modern Scalping Strategy ===
+def modern_compute_features(df):
+    df = df.copy()
+    df['ret1'] = df['close'].pct_change()
+    df['ret5'] = df['close'].pct_change(5)
+    df['ret10'] = df['close'].pct_change(10)
+    df['rsi'] = df['close'].rolling(14).apply(
+        lambda x: 100 - 100 / (1 + np.mean(np.clip(np.diff(x), 0, None)) /
+                               (1e-6 + np.mean(np.clip(-np.diff(x), 0, None)))),
+        raw=False,
+    )
+    df['ma5'] = df['close'].rolling(5).mean()
+    df['ma20'] = df['close'].rolling(20).mean()
+    df['atr'] = (df['high'] - df['low']).rolling(14).mean()
+    df['trend'] = (df['ma5'] > df['ma20']).astype(int)
+    df.dropna(inplace=True)
+    return df
+
+
+def modern_train_signal_model(df):
+    df = df.copy()
+    if not SKLEARN_AVAILABLE:
+        df['signal_prob'] = 0.0
+        df['entry_signal'] = None
+        return df
+
+    df['future_ret'] = df['close'].shift(-5).pct_change(periods=5)
+    df['target'] = (df['future_ret'] > 0.002).astype(int)
+    features = ['ret1', 'ret5', 'ret10', 'rsi', 'atr', 'trend']
+    X = df[features]
+    y = df['target']
+    X_train, X_val, y_train, y_val = train_test_split(
+        X, y, shuffle=False, test_size=0.2
+    )
+    scaler = StandardScaler().fit(X_train)
+    X_train_scaled = scaler.transform(X_train)
+    clf = GradientBoostingClassifier(n_estimators=50).fit(
+        X_train_scaled, y_train
+    )
+    df['signal_prob'] = clf.predict_proba(scaler.transform(df[features]))[:, 1]
+    df['entry_signal'] = np.where(
+        (df['signal_prob'] > 0.6) & (df['atr'] > df['atr'].rolling(50).mean()),
+        'buy',
+        None,
+    )
+    return df
+
+
+def modern_run_backtest(df):
+    capital = 100.0
+    trades = []
+    position = None
+    for i in range(20, len(df)):
+        row = df.iloc[i]
+        if position is None and row['entry_signal'] == 'buy':
+            entry_price = row['close'] + 0.10
+            sl = entry_price - row['atr']
+            tp1 = entry_price + row['atr'] * 0.8
+            tp2 = entry_price + row['atr'] * 2.0
+            lot = min(0.01, capital * 0.05 / max(entry_price - sl, 1e-6))
+            position = {
+                'entry': entry_price,
+                'sl': sl,
+                'tp1': tp1,
+                'tp2': tp2,
+                'lot': lot,
+                'tp1_hit': False,
+            }
+        elif position:
+            if not position['tp1_hit'] and row['high'] >= position['tp1']:
+                pnl = position['lot'] * (position['tp1'] - position['entry']) * 100
+                capital += pnl
+                position['tp1_hit'] = True
+                position['sl'] = position['entry']
+                trades.append({'exit': 'TP1', 'pnl': pnl, 'capital': capital,
+                               'time': row['timestamp']})
+            elif row['low'] <= position['sl']:
+                pnl = -position['lot'] * (position['entry'] - position['sl']) * 100
+                capital += pnl
+                trades.append({'exit': 'SL', 'pnl': pnl, 'capital': capital,
+                               'time': row['timestamp']})
+                position = None
+            elif row['high'] >= position['tp2']:
+                pnl = position['lot'] * (position['tp2'] - position['entry']) * 100
+                capital += pnl
+                trades.append({'exit': 'TP2', 'pnl': pnl, 'capital': capital,
+                               'time': row['timestamp']})
+                position = None
+            if capital < 70:
+                break
+    return pd.DataFrame(trades)
 
 # === Apply Strategy ===
 def run_backtest_cli():  # pragma: no cover
