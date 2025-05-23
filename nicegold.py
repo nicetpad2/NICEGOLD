@@ -387,6 +387,24 @@ def should_force_entry(row, last_entry_time, current_time, cooldown=180):
         return True
     return False
 
+def fallback_simple_signal(df, rsi_upper: float = 55, rsi_lower: float = 45):
+    """Assign basic entry signals when none are generated."""
+    logger.debug("Applying fallback simple signal")
+    df = df.copy()
+    if 'macd_hist' not in df.columns:
+        df = calculate_macd(df)
+    rsi = df.get('RSI', pd.Series(50, index=df.index))
+    df['fallback_signal'] = np.where(
+        (df['macd_hist'] > 0) & (rsi > rsi_upper), 'buy',
+        np.where((df['macd_hist'] < 0) & (rsi < rsi_lower), 'sell', None)
+    )
+    if 'entry_signal' in df.columns:
+        df['entry_signal'] = df['entry_signal'].combine_first(df['fallback_signal'])
+    else:
+        df['entry_signal'] = df['fallback_signal']
+    df.drop(columns=['fallback_signal'], inplace=True)
+    return df
+
 # === Modern Scalping Strategy ===
 def compute_features(df):
     """คำนวณตัวชี้วัดสำหรับกลยุทธ์ ModernScalping"""
@@ -668,6 +686,7 @@ def run_backtest_cli():  # pragma: no cover
     # === Generate entry signals using Multi-Timeframe SMC confirmation ===
     df = calculate_trend_confirm(df)  # [Patch] Add EMA Fast/Slow for is_trending()
     df = generate_smart_signal(df)  # [Patch] Replaced old signal logic with SMC-based signals
+    df = fallback_simple_signal(df)  # [Patch] fallback to simple MACD/RSI signal
     if psutil is not None:
         ram_used = psutil.virtual_memory().used / (1024 ** 3)
         logger.info(f"[QA] RAM used: {ram_used:.2f} GB")  # [Patch] Show RAM usage for QA monitoring
