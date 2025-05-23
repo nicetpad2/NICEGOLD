@@ -1,8 +1,8 @@
-# NICEGOLD Enterprise QA Supergrowth v3 - Min SL, Lot Cap, Trend Only, RR Adaptive
+# [Patch] NICEGOLD Enterprise Supergrowth v4 - Entry Boost, Adaptive Lot, OMS, Smart Exit, QA
 import pandas as pd
 import numpy as np
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 
 logger = logging.getLogger(__name__)
@@ -14,27 +14,31 @@ M1_PATH = "/content/drive/MyDrive/NICEGOLD/XAUUSD_M1.csv"
 
 # [Patch] Parameters – MM & Growth
 initial_capital = 100.0
-risk_per_trade = 0.03
-tp1_mult = 1.0
-tp2_mult = 3.5
+risk_per_trade = 0.06      # [Patch] เพิ่มความเสี่ยง (6%)
+tp1_mult = 0.9             # [Patch] ปรับ TP1 แคบขึ้นเพื่อเก็บกำไรบางส่วนเร็วขึ้น
+tp2_mult = 3.0             # [Patch] TP2 ต่ำลง, เน้นยิงไวออกไว
 sl_mult = 1.0
-min_sl_dist = 2.0    # [Patch] ป้องกัน SL ใกล้เกิน
-lot_max = 0.25
-lot_cap_500 = 0.25
-lot_cap_2000 = 0.5
-cooldown_bars = 2
-oms_recovery_loss = 4
-win_streak_boost = 1.1
-recovery_multiplier = 0.3
+min_sl_dist = 2.0
+lot_max = 5.0              # [Patch] ปลดลิมิตให้สามารถปั้นพอร์ตโต
+lot_cap_500 = 0.5
+lot_cap_2000 = 1.0
+lot_cap_10000 = 2.5
+lot_cap_max = 5.0
+cooldown_bars = 0          # [Patch] ไม่มี cooldown
+oms_recovery_loss = 3      # [Patch] Recovery เร็วขึ้น (จาก 4 → 3)
+win_streak_boost = 1.3     # [Patch] Boost สูงขึ้น
+recovery_multiplier = 3.0  # [Patch] Aggressive recovery
 trailing_atr_mult = 1.1
-kill_switch_dd = 0.5
-trend_lookback = 30
-adx_period = 20
-adx_thresh = 15
-
+kill_switch_dd = 0.35      # [Patch] Kill switch หาก DD > 35%
+trend_lookback = 25        # [Patch] เร็วขึ้น (trend สั้นลง)
+adx_period = 14
+adx_thresh = 12            # [Patch] Relax adx guard
+adx_strong = 23            # [Patch] ปรับ adx strong
+force_entry_gap = 300      # [Patch] Force entry หากไม่มี order เกิน 300 แท่ง
+trade_start_hour = 8
+trade_end_hour = 23
 
 def load_data(path):
-    """Load CSV and convert Buddhist year."""
     logger.info("[Patch] Loading data: %s", path)
     df = pd.read_csv(path)
     df.columns = [c.lower() for c in df.columns]
@@ -49,18 +53,17 @@ def load_data(path):
     df = df.sort_values('timestamp').reset_index(drop=True)
     return df
 
-
 def calc_indicators(df):
-    """Calculate EMA trend, RSI, ATR, and ADX."""
     logger.info("[Patch] Calculating indicators")
     df['ema_fast'] = df['close'].ewm(span=trend_lookback, adjust=False).mean()
     df['ema_slow'] = df['close'].ewm(span=trend_lookback*2, adjust=False).mean()
+    df['ema_fast_htf'] = df['close'].ewm(span=trend_lookback*4, adjust=False).mean()
+    df['ema_slow_htf'] = df['close'].ewm(span=trend_lookback*8, adjust=False).mean()
     df['rsi'] = df['close'].rolling(14).apply(
         lambda x: 100 - 100 / (1 + (np.mean(np.clip(np.diff(x), 0, None)) / (np.mean(np.clip(-np.diff(x), 0, None)) + 1e-6))),
         raw=False
     )
     df['atr'] = (df['high'] - df['low']).rolling(14).mean()
-    # ADX for volatility filter
     up_move = df['high'].diff().clip(lower=0)
     down_move = -df['low'].diff().clip(upper=0)
     tr = pd.concat([
@@ -77,33 +80,21 @@ def calc_indicators(df):
     df['adx'] = dx.rolling(adx_period).mean()
     return df
 
-
-def is_strong_trend(df, i):
-    """[Patch] Trend confirm ด้วย EMA cross และ Trend Strength rolling"""
-    if i < trend_lookback * 2:
-        return False
-    trend = (
-        (df['ema_fast'].iloc[i - trend_lookback + 1:i + 1] >
-         df['ema_slow'].iloc[i - trend_lookback + 1:i + 1]).all() or
-        (df['ema_fast'].iloc[i - trend_lookback + 1:i + 1] <
-         df['ema_slow'].iloc[i - trend_lookback + 1:i + 1]).all()
-    )
-    adx = df['adx'].iloc[i] > adx_thresh
-    atr_high = df['atr'].iloc[i] > df['atr'].rolling(1000).median().iloc[i] * 1.2
-    return trend and (adx or atr_high)
-
-
 def smart_entry_signal(df):
-    """Vectorized entry signal generation with trend and min SL guard."""
-    logger.info("[Patch] Vectorized entry signal (trend+min SL guard+fast)")
+    logger.info("[Patch] Vectorized entry signal (trend+min SL guard+relax+force entry)")
     df = df.copy()
     df['entry_signal'] = None
 
-    # [Patch] 1. Mask เฉพาะช่วงที่ ATR > min_sl_dist, ADX > adx_thresh
-    mask_valid = (df['atr'] > min_sl_dist) & (df['adx'] > adx_thresh)
+    # [Patch] 1. Relax ATR/ADX Guard (และกรองเฉพาะช่วงเวลาสำคัญ)
+    mask_valid = (
+        (df['atr'] > min_sl_dist * 0.7) &
+        (df['adx'] > adx_thresh)
+        & (df['timestamp'].dt.hour >= trade_start_hour)
+        & (df['timestamp'].dt.hour < trade_end_hour)
+    )
 
-    # [Patch] 2. สร้าง rolling trend mask (trend ต่อเนื่อง 15 แท่ง)
-    n_trend = 15
+    # [Patch] 2. Rolling trend mask (trend สั้นลง 7 bar)
+    n_trend = 7
     trend_up = (
         (df['ema_fast'] > df['ema_slow'])
         .rolling(n_trend, min_periods=n_trend)
@@ -117,12 +108,41 @@ def smart_entry_signal(df):
         .astype(bool)
     )
 
-    # [Patch] 3. กรอง RSI ตามเทรนด์
-    entry_long = mask_valid & trend_up & (df['rsi'] > 53)
-    entry_short = mask_valid & trend_dn & (df['rsi'] < 47)
+    # [Patch] 3. RSI + multi-timeframe + relax wick filter (ผ่านมากขึ้น)
+    def relax_wick(row):
+        price_range = max(row['high'] - row['low'], 1e-6)
+        upper_wick = (row['high'] - row['close']) / price_range
+        lower_wick = (row['close'] - row['low']) / price_range
+        # [Patch] Relax ให้ Wick ถึง 80% ผ่านได้
+        return upper_wick < 0.80 and lower_wick < 0.80
 
+    entry_long = (
+        mask_valid & trend_up & (df['rsi'] > 51) &
+        (df['ema_fast_htf'] > df['ema_slow_htf']) &
+        df.apply(relax_wick, axis=1)
+    )
+    entry_short = (
+        mask_valid & trend_dn & (df['rsi'] < 49) &
+        (df['ema_fast_htf'] < df['ema_slow_htf']) &
+        df.apply(relax_wick, axis=1)
+    )
     df.loc[entry_long, 'entry_signal'] = 'buy'
     df.loc[entry_short, 'entry_signal'] = 'sell'
+
+    # [Patch] 4. Force Entry หากไม่มี signal เกิน force_entry_gap bar
+    last_entry = -force_entry_gap
+    for i in range(len(df)):
+        if pd.notna(df['entry_signal'].iloc[i]):
+            last_entry = i
+        elif i - last_entry > force_entry_gap:
+            if mask_valid.iloc[i]:
+                # [Patch] เลือกทางเดียวกับ momentum/ema
+                if df['ema_fast'].iloc[i] > df['ema_slow'].iloc[i]:
+                    df.at[i, 'entry_signal'] = 'buy'
+                else:
+                    df.at[i, 'entry_signal'] = 'sell'
+                last_entry = i
+                logger.info("[Patch] Force Entry at %s", df['timestamp'].iloc[i])
 
     logger.info(
         "[Patch] Entry signal counts: buy=%d, sell=%d",
@@ -135,10 +155,7 @@ def smart_entry_signal(df):
     )
     return df
 
-
 class OMSManager:
-    """Risk and drawdown management"""
-
     def __init__(self, capital, kill_switch_dd, lot_max):
         self.capital = capital
         self.peak = capital
@@ -164,26 +181,34 @@ class OMSManager:
             self.loss_streak += 1
             self.win_streak = 0
         if self.loss_streak >= oms_recovery_loss:
-            self.recovery_mode = True
-        if self.win_streak > 2:
+            if not self.recovery_mode:
+                self.recovery_mode = True
+                logger.warning("[Patch] Recovery mode activated after %d consecutive losses", self.loss_streak)
+        if self.recovery_mode and self.win_streak > 2:
             self.recovery_mode = False
+            logger.info("[Patch] Recovery mode deactivated after win streak of %d", self.win_streak)
 
     def smart_lot(self, capital, risk_amount, entry_sl_dist):
-        # [Patch] Lot cap by capital tier
         lot_cap = self.lot_max
         if capital < 500:
             lot_cap = lot_cap_500
         elif capital < 2000:
             lot_cap = lot_cap_2000
+        elif capital < 10000:
+            lot_cap = lot_cap_10000
+        else:
+            lot_cap = self.lot_max
         lot = risk_amount / max(entry_sl_dist, min_sl_dist)
         if self.recovery_mode:
             lot *= recovery_multiplier
+        # [Patch] Boost lot ขณะ win streak
+        if self.win_streak >= 2:
+            lot *= win_streak_boost
+        lot_cap = min(lot_cap, lot_cap_max)
         lot = max(0.01, min(lot, lot_cap))
         return lot
 
-
 def run_backtest():
-    """Run backtest with advanced OMS"""
     df = load_data(M1_PATH)
     df = calc_indicators(df)
     df = smart_entry_signal(df)
@@ -202,15 +227,30 @@ def run_backtest():
             logger.info("[Patch] OMS: Stop trading (kill switch)")
             break
 
-        # Entry with min SL distance guard
+        # Entry
         if position is None and row['entry_signal'] in ['buy', 'sell'] and (i - last_entry_idx) >= cooldown_bars:
             direction = row['entry_signal']
+            price_range = max(row['high'] - row['low'], 1e-6)
+            upper_wick_ratio = (row['high'] - row['close']) / price_range
+            lower_wick_ratio = (row['close'] - row['low']) / price_range
+            # [Patch] Relax wick filter - ผ่าน 80%
+            if direction == 'buy' and upper_wick_ratio > 0.80:
+                continue
+            if direction == 'sell' and lower_wick_ratio > 0.80:
+                continue
             atr = max(row['atr'], min_sl_dist)
             entry = row['close']
             sl = entry - atr*sl_mult if direction == 'buy' else entry + atr*sl_mult
             tp1 = entry + atr*tp1_mult if direction == 'buy' else entry - atr*tp1_mult
             tp2 = entry + atr*tp2_mult if direction == 'buy' else entry - atr*tp2_mult
             risk_amount = capital * risk_per_trade
+            # [Patch] Adaptive risk management + signal boost
+            if not oms.recovery_mode:
+                if oms.win_streak >= 2:
+                    risk_amount *= win_streak_boost
+                if row['adx'] > adx_strong:
+                    risk_amount *= 1.5
+                    logger.info("[Patch] Signal boost: ADX %.1f > %.0f, risk increased 50%%", row['adx'], adx_strong)
             lot = oms.smart_lot(capital, risk_amount, abs(entry-sl))
             mode = "RECOVERY" if oms.recovery_mode else "NORMAL"
             position = {
@@ -239,7 +279,6 @@ def run_backtest():
                 if hit_tp1:
                     pnl = position['lot'] * abs(position['tp1']-position['entry']) * 0.5
                     capital += pnl
-                    # Move stop to breakeven after TP1
                     position['sl'] = position['entry']
                     position['tp1_hit'] = True
                     position['breakeven'] = True
@@ -300,8 +339,22 @@ def run_backtest():
     max_equity = df_equity['equity'].max()
     min_equity = df_equity['equity'].min()
     print(f"[Patch] Max Equity: {max_equity:.2f} | Min Equity: {min_equity:.2f}")
+    max_dd = df_equity['dd'].max()
+    print(f"[Patch] Max Drawdown: {max_dd*100:.2f}%")
     print(f"[Patch] OMS mode: recovery = {oms.recovery_mode}")
 
+    # [Patch] Show equity curve visualization (if matplotlib available)
+    try:
+        import matplotlib.pyplot as plt
+        plt.figure(figsize=(14,5))
+        plt.plot(df_equity['timestamp'], df_equity['equity'])
+        plt.title('Equity Curve [Patch]')
+        plt.xlabel('Timestamp')
+        plt.ylabel('Equity')
+        plt.tight_layout()
+        plt.show()
+    except Exception as e:
+        logger.warning("[Patch] Matplotlib not available for equity plot: %s", e)
 
 if __name__ == "__main__":
     run_backtest()
