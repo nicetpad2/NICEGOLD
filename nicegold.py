@@ -89,7 +89,7 @@ def load_data(file_path=None):
     ts = year.astype(str) + '-' + date_str.str[4:6] + '-' + date_str.str[6:8]
     df['timestamp'] = pd.to_datetime(
         ts + ' ' + df['timestamp'],
-        format='%Y-%m-%d %H:%M:%S'
+        errors='coerce'
     )
     df['hour'] = df['timestamp'].dt.hour
     df.drop(columns=['date'], inplace=True)
@@ -641,7 +641,7 @@ def run_backtest_cli():  # pragma: no cover
     """Execute the realistic backtest when run as a script."""
     logger.debug("Running backtest CLI")
     qa_log_step("Load data")
-    df = pd.read_csv("/content/drive/MyDrive/NICEGOLD/XAUUSD_M1.csv", low_memory=False)
+    df = pd.read_csv(M1_PATH, low_memory=False)
     df.columns = [col.lower() for col in df.columns]
 
     df = optimize_memory(df)
@@ -652,7 +652,7 @@ def run_backtest_cli():  # pragma: no cover
 
     df['timestamp'] = pd.to_datetime(
         year.astype(str) + '-' + month.astype(str).str.zfill(2) + '-' + day.astype(str).str.zfill(2) + ' ' + time,
-        format='%Y-%m-%d %H:%M:%S'
+        errors='coerce'
     )
 
     # === สร้าง close, high, low เป็น lowercase ===
@@ -1221,7 +1221,7 @@ def run():
     day = df['date'].astype(str).str[6:8].astype(int)
     df['timestamp'] = pd.to_datetime(
         year.astype(str) + '-' + month.astype(str).str.zfill(2) + '-' + day.astype(str).str.zfill(2) + ' ' + df['timestamp'],
-        format='%Y-%m-%d %H:%M:%S'
+        errors='coerce'
     )
     df['ema35'] = df['close'].ewm(span=35).mean()
     df['RSI'] = df['close'].rolling(14).apply(lambda x: 100 - 100 / (1 + (np.mean(np.clip(np.diff(x), 0, None)) / (np.mean(np.clip(-np.diff(x), 0, None)) + 1e-6))))
@@ -1239,8 +1239,10 @@ def run():
     print(trades.tail())
 
 # === SMC Multi-Timeframe Utilities ===
-def load_csv_m15(path: str = M15_PATH) -> pd.DataFrame:
+def load_csv_m15(path: str = None) -> pd.DataFrame:
     """Load M15 CSV data and convert BE date to AD datetime."""
+    if path is None:
+        path = M15_PATH
     logger.debug("Loading M15 data from %s", path)
     df = pd.read_csv(path, low_memory=False)
     df.columns = [c.lower() for c in df.columns]
@@ -1251,7 +1253,6 @@ def load_csv_m15(path: str = M15_PATH) -> pd.DataFrame:
         day = date_str.str[6:8]
         df['timestamp'] = pd.to_datetime(
             year.astype(str) + '-' + month + '-' + day + ' ' + df['timestamp'],
-            format='%Y-%m-%d %H:%M:%S',
             errors='coerce'
         )
         df.drop(columns=['date'], inplace=True)
@@ -1261,8 +1262,10 @@ def load_csv_m15(path: str = M15_PATH) -> pd.DataFrame:
     return df
 
 
-def load_csv_m1(path: str = M1_PATH) -> pd.DataFrame:
+def load_csv_m1(path: str = None) -> pd.DataFrame:
     """Load M1 CSV data and convert BE date to AD datetime."""
+    if path is None:
+        path = M1_PATH
     logger.debug("Loading M1 data from %s", path)
     df = pd.read_csv(path, low_memory=False)
     df.columns = [c.lower() for c in df.columns]
@@ -1273,7 +1276,6 @@ def load_csv_m1(path: str = M1_PATH) -> pd.DataFrame:
         day = date_str.str[6:8]
         df['timestamp'] = pd.to_datetime(
             year.astype(str) + '-' + month + '-' + day + ' ' + df['timestamp'],
-            format='%Y-%m-%d %H:%M:%S',
             errors='coerce'
         )
         df.drop(columns=['date'], inplace=True)

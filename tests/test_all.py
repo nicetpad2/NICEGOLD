@@ -209,7 +209,7 @@ class TestNicegoldExtra(unittest.TestCase):
     def test_run_backtest_cli_path(self):
         import inspect
         source = inspect.getsource(nicegold.run_backtest_cli)
-        self.assertIn('/content/drive/MyDrive/NICEGOLD/XAUUSD_M1.csv', source)
+        self.assertIn('M1_PATH', source)
 
     def test_run_backtest_cli_fillna_assignment(self):
         import inspect
