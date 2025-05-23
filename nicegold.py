@@ -1224,8 +1224,6 @@ def run():
     print(f"Final Equity: {final_capital:.2f}, Total Trades: {len(trades)}")
     print(trades.tail())
 
-if __name__ == "__main__":  # pragma: no cover
-    run_backtest_cli()
 # === SMC Multi-Timeframe Utilities ===
 def load_csv_m15(path: str = M15_PATH) -> pd.DataFrame:
     """Load M15 CSV data"""
@@ -1384,3 +1382,7 @@ def is_smc_entry(df: pd.DataFrame, i: int, ob_df: pd.DataFrame, fvg_df: pd.DataF
     if not short_lg.empty and (not ob_short.empty or not fvg_short.empty) and is_confirm_bar(df, i, 'sell'):
         return 'sell'
     return None
+
+
+if __name__ == "__main__":  # pragma: no cover
+    run_backtest_cli()

@@ -587,5 +587,15 @@ class TestQAStepLogging(unittest.TestCase):
         self.assertTrue(any('STEP: test' in msg for msg in cm.output))
 
 
+class TestMainBlockOrder(unittest.TestCase):
+    def test_main_block_after_smc_funcs(self):
+        import os
+        with open(nicegold.__file__, 'r') as f:
+            src = f.read()
+        pos_main = src.rfind("if __name__ == \"__main__\"")
+        pos_load = src.find("def load_csv_m15")
+        self.assertGreater(pos_main, pos_load)
+
+
 if __name__ == '__main__':  # pragma: no cover
     unittest.main()

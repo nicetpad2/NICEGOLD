@@ -216,3 +216,7 @@
 - ปรับ `generate_smart_signal` ให้โหลดข้อมูล M15 และแมพโซน OB/FVG/Liquidity Grab
 - เพิ่มเหตุผลการเข้าออเดอร์แบบ SMC ในบันทึกเทรด
 
+## [v1.9.28] — 2025-06-28
+### Fixed
+- แก้ NameError `load_csv_m15` ใน `run_backtest_cli` โดยย้ายบล็อก `__main__` ไปท้ายไฟล์
+
