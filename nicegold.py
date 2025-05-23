@@ -324,7 +324,7 @@ def run_backtest(df):
 def run_backtest_cli():  # pragma: no cover
     """Execute the realistic backtest when run as a script."""
     # === โหลดและแปลงพ.ศ.เป็นค.ศ. ===
-    df = pd.read_csv("XAUUSD_M1.csv")
+    df = pd.read_csv("/content/drive/MyDrive/NICEGOLD/XAUUSD_M1.csv")
     df.columns = [col.lower() for col in df.columns]
 
     year = df['date'].astype(str).str.slice(0, 4).astype(int) - 543

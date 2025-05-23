@@ -112,5 +112,10 @@ class TestNicegoldExtra(unittest.TestCase):
         self.assertEqual(df['timestamp'].iloc[0], pd.Timestamp('2020-05-01 00:00:00'))
         self.assertEqual(df['timestamp'].iloc[1], pd.Timestamp('2020-05-01 00:15:00'))
 
+    def test_run_backtest_cli_path(self):
+        import inspect
+        source = inspect.getsource(nicegold.run_backtest_cli)
+        self.assertIn('/content/drive/MyDrive/NICEGOLD/XAUUSD_M1.csv', source)
+
 if __name__ == '__main__':  # pragma: no cover
     unittest.main()
