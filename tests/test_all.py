@@ -238,6 +238,11 @@ class TestNicegoldExtra(unittest.TestCase):
         src = inspect.getsource(nicegold.run_backtest_cli)
         self.assertIn('current_drawdown =', src)
 
+    def test_run_backtest_cli_progress_logging(self):
+        import inspect
+        src = inspect.getsource(nicegold.run_backtest_cli)
+        self.assertIn('Backtest progress', src)
+
 
 class TestModernScalping(unittest.TestCase):
     @unittest.skipUnless(pandas_available and numpy_available and sklearn_available, 'requires pandas, numpy, sklearn')
