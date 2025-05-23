@@ -143,3 +143,11 @@
 - Updated commission calculation to $0.10 per 0.01 lot without capital limit
 - Added debug log tail to inspect entry signals
 
+
+## [v1.9.15] — 2025-06-15
+### Fixed
+- Removed deprecated 'T' frequency in tests
+- Specified `fill_method=None` in `pct_change` to silence FutureWarning
+
+=======
+

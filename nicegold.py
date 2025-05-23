@@ -339,9 +339,9 @@ def compute_features(df):
     """คำนวณตัวชี้วัดสำหรับกลยุทธ์ ModernScalping"""
     logger.debug("Computing features for ML model")
     df = df.copy()
-    df['ret1'] = df['close'].pct_change()
-    df['ret5'] = df['close'].pct_change(5)
-    df['ret10'] = df['close'].pct_change(10)
+    df['ret1'] = df['close'].pct_change(fill_method=None)
+    df['ret5'] = df['close'].pct_change(5, fill_method=None)
+    df['ret10'] = df['close'].pct_change(10, fill_method=None)
     df['rsi'] = df['close'].rolling(14).apply(
         lambda x: 100 - 100 / (1 + np.mean(np.clip(np.diff(x), 0, None)) / (1e-6 + np.mean(np.clip(-np.diff(x), 0, None)))),
         raw=False,
@@ -361,7 +361,7 @@ def train_signal_model(df):
     if GradientBoostingClassifier is None:
         raise ImportError('scikit-learn is required for train_signal_model')
     df = df.copy()
-    df['future_ret'] = df['close'].shift(-5).pct_change(periods=5)
+    df['future_ret'] = df['close'].shift(-5).pct_change(periods=5, fill_method=None)
     df['target'] = (df['future_ret'] > 0.0015).astype(int)
     features = ['ret1', 'ret5', 'ret10', 'rsi', 'atr', 'trend']
     X = df[features]
@@ -542,7 +542,7 @@ def run_backtest_cli():  # pragma: no cover
     df['RSI'] = df['RSI'].fillna(50)  # [Patch G-Fix1] fix chained assignment warning
     logger.debug("RSI calculated")
     # Compute short-term momentum Z-score (Gain_Z) over 10-bar returns
-    ret10 = df['close'].pct_change(10)
+    ret10 = df['close'].pct_change(10, fill_method=None)
     df['Gain_Z'] = ((ret10 - ret10.rolling(60).mean()) / (ret10.rolling(60).std() + 1e-6)).fillna(0)
     logger.debug("Gain_Z calculated")
     # Label pattern signals: Breakout, Reversal, StrongTrend

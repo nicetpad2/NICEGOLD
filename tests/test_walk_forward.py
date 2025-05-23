@@ -22,7 +22,7 @@ class TestWalkForward(unittest.TestCase):
             'close': np.linspace(1, 2, 1500),
             'high': np.linspace(1, 2, 1500) + 0.1,
             'low': np.linspace(1, 2, 1500) - 0.1,
-            'timestamp': pd.date_range('2020-01-01', periods=1500, freq='T')
+            'timestamp': pd.date_range('2020-01-01', periods=1500, freq='min')
         })
         cfg = {
             'initial_capital': 100.0,

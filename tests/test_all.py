@@ -230,7 +230,7 @@ class TestModernScalping(unittest.TestCase):
             'close': np.arange(1, 30, dtype=float),
             'high': np.arange(1, 30, dtype=float) + 0.1,
             'low': np.arange(1, 30, dtype=float) - 0.1,
-            'timestamp': pd.date_range('2020-01-01', periods=29, freq='T')
+            'timestamp': pd.date_range('2020-01-01', periods=29, freq='min')
         })
         res = nicegold.compute_features(df)
         for col in ['rsi', 'atr', 'trend']:
@@ -242,7 +242,7 @@ class TestModernScalping(unittest.TestCase):
             'close': np.linspace(1, 2, 60),
             'high': np.linspace(1, 2, 60) + 0.1,
             'low': np.linspace(1, 2, 60) - 0.1,
-            'timestamp': pd.date_range('2020-01-01', periods=60, freq='T')
+            'timestamp': pd.date_range('2020-01-01', periods=60, freq='min')
         })
         df = nicegold.compute_features(df)
         res = nicegold.train_signal_model(df)
@@ -255,7 +255,7 @@ class TestModernScalping(unittest.TestCase):
             'close': np.linspace(1, 2, 80),
             'high': np.linspace(1, 2, 80) + 0.1,
             'low': np.linspace(1, 2, 80) - 0.1,
-            'timestamp': pd.date_range('2020-01-01', periods=80, freq='T')
+            'timestamp': pd.date_range('2020-01-01', periods=80, freq='min')
         })
         df = nicegold.compute_features(df)
         df = nicegold.train_signal_model(df)
@@ -277,7 +277,7 @@ class TestModernScalping(unittest.TestCase):
             'close': np.linspace(1, 2, 80),
             'high': np.linspace(1, 2, 80) + 0.1,
             'low': np.linspace(1, 2, 80) - 0.1,
-            'timestamp': pd.date_range('2020-01-01', periods=80, freq='T')
+            'timestamp': pd.date_range('2020-01-01', periods=80, freq='min')
         })
         df = nicegold.compute_features(df)
         df = nicegold.train_signal_model(df)
@@ -310,7 +310,7 @@ class TestModernScalping(unittest.TestCase):
             'close': np.linspace(1, 2, 80),
             'high': np.linspace(1, 2, 80) + 0.1,
             'low': np.linspace(1, 2, 80) - 0.1,
-            'timestamp': pd.date_range('2020-01-01', periods=80, freq='T')
+            'timestamp': pd.date_range('2020-01-01', periods=80, freq='min')
         })
         df = nicegold.compute_features(df)
         df['entry_signal'] = 'buy'
@@ -329,7 +329,7 @@ class TestWalkForward(unittest.TestCase):
             'close': np.linspace(1, 2, 1500),
             'high': np.linspace(1, 2, 1500) + 0.1,
             'low': np.linspace(1, 2, 1500) - 0.1,
-            'timestamp': pd.date_range('2020-01-01', periods=1500, freq='T')
+            'timestamp': pd.date_range('2020-01-01', periods=1500, freq='min')
         })
         cfg = {
             'initial_capital': 100.0,
@@ -367,7 +367,7 @@ class TestNewFunctions(unittest.TestCase):
     @unittest.skipUnless(pandas_available and numpy_available, 'requires pandas and numpy')
     def test_backtest_with_partial_tp_returns(self):
         df = pd.DataFrame({
-            'timestamp': pd.date_range('2020-01-01', periods=5, freq='T'),
+            'timestamp': pd.date_range('2020-01-01', periods=5, freq='min'),
             'close': [1, 1.1, 1.2, 1.3, 1.4],
             'high': [1, 1.2, 1.3, 1.4, 1.5],
             'low': [0.9, 1.0, 1.1, 1.2, 1.3],
@@ -385,7 +385,7 @@ class TestNewFunctions(unittest.TestCase):
     @unittest.skipUnless(pandas_available and numpy_available, 'requires pandas and numpy')
     def test_backtest_with_partial_tp_dropna(self):
         df = pd.DataFrame({
-            'timestamp': pd.date_range('2020-01-01', periods=5, freq='T'),
+            'timestamp': pd.date_range('2020-01-01', periods=5, freq='min'),
             'close': [1, 1.1, 1.2, 1.3, 1.4],
             'high': [1, 1.2, 1.3, 1.4, 1.5],
             'low': [0.9, 1.0, 1.1, 1.2, 1.3],
