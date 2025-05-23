@@ -289,21 +289,31 @@ def compute_features(df):
 
 
 def train_signal_model(df):
-    """ฝึกโมเดล Machine Learning เพื่อสร้างสัญญาณ"""
+    """ฝึกโมเดล Machine Learning เพื่อสร้างสัญญาณ พร้อม debug log"""
     if GradientBoostingClassifier is None:
         raise ImportError('scikit-learn is required for train_signal_model')
     df = df.copy()
     df['future_ret'] = df['close'].shift(-5).pct_change(periods=5)
-    df['target'] = (df['future_ret'] > 0.002).astype(int)
+    df['target'] = (df['future_ret'] > 0.0015).astype(int)
     features = ['ret1', 'ret5', 'ret10', 'rsi', 'atr', 'trend']
     X = df[features]
     y = df['target']
     X_train, X_val, y_train, y_val = train_test_split(X, y, shuffle=False, test_size=0.2)
     scaler = StandardScaler().fit(X_train)
-    X_train_scaled = scaler.transform(X_train)
-    clf = GradientBoostingClassifier(n_estimators=50).fit(X_train_scaled, y_train)
+    clf = GradientBoostingClassifier(n_estimators=50).fit(scaler.transform(X_train), y_train)
     df['signal_prob'] = clf.predict_proba(scaler.transform(df[features]))[:, 1]
-    df['entry_signal'] = np.where((df['signal_prob'] > 0.6) & (df['atr'] > df['atr'].rolling(50).mean()), 'buy', None)
+
+    df['entry_signal'] = np.where(
+        (df['signal_prob'] > 0.55) &
+        (df['atr'] > df['atr'].rolling(50).mean()),
+        'buy', None
+    )
+
+    print("ENTRY_SIGNAL COUNTS:")
+    print(df['entry_signal'].value_counts(dropna=False))
+    print("Mean Signal Prob:", round(df['signal_prob'].mean(), 4))
+    print("Mean ATR:", round(df['atr'].mean(), 5))
+
     return df
 
 
@@ -313,9 +323,11 @@ def run_backtest(df, cfg):
     peak_equity = capital
     max_drawdown = 0.0
     trades = []
+    equity_curve = []
     position = None
     for i in range(20, len(df)):
         row = df.iloc[i]
+        equity_curve.append({'timestamp': row['timestamp'], 'equity': capital})
         if not (cfg.get('trade_start_hour', 0) <= row.get('hour', 0) <= cfg.get('trade_end_hour', 23)):
             continue
         if position is None and row['entry_signal'] == 'buy':
@@ -364,6 +376,8 @@ def run_backtest(df, cfg):
 
     df_trades = pd.DataFrame(trades)
     df_trades.to_csv('trade_log.csv', index=False)
+    df_equity = pd.DataFrame(equity_curve)
+    df_equity.to_csv('equity_curve.csv', index=False)
     print('Final Equity:', round(capital, 2))
     print('Total Return:', capital - cfg.get('initial_capital', 100.0))
     print('Total Trades:', len(df_trades))
