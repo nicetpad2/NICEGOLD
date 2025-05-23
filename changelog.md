@@ -275,3 +275,7 @@
 ## [v1.9.39] — 2025-07-09
 ### Changed
 - รวมโมดูล runtime เข้ากับ `enterprise.py` ลดไฟล์และใช้งานสะดวกขึ้น
+## [v1.9.40] — 2025-07-10
+### Fixed
+- รองรับการอ่านเวลารูปแบบ AM/PM ใน `load_data`, `load_csv_m1`, `load_csv_m15` และ `run_backtest_cli`
+
