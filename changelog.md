@@ -249,3 +249,13 @@
 - เพิ่ม `calculate_trend_confirm` ก่อนสร้างสัญญาณ SMC
 - แสดง RAM ที่ใช้ผ่าน logger เพื่อการตรวจสอบ QA
 
+
+## [v1.9.34] — 2025-07-04
+### Added
+- NICEGOLD Enterprise v1.1: OMS manager, relaxed entry, smart sizing, logging improvements
+
+## [v1.9.35] — 2025-07-05
+### Added
+- NICEGOLD Enterprise Supergrowth v2.0 พร้อมระบบ OMS ปรับปรุง กรองเทรนด์และ ADX
+- บันทึก trade log และ equity curve แบบละเอียด
+
