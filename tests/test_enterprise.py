@@ -24,24 +24,28 @@ class TestEnterprise(unittest.TestCase):
             'low': np.arange(14)
         })
         res = enterprise.calc_indicators(df)
-        for col in ['ema35','rsi','atr']:
+        for col in ['ema_fast','ema_slow','rsi','atr','adx']:
             self.assertIn(col, res.columns)
 
     def test_smart_entry_signal(self):
         df = pd.DataFrame({
-            'rsi':[60]*55 + [40]*5,
-            'close':[2]*55 + [0.5]*5,
-            'ema35':[1]*60,
-            'atr':[1]*60
+            'ema_fast':[2,2,1,1],
+            'ema_slow':[1,1,2,2],
+            'rsi':[60,60,40,40],
+            'atr':[1,1,1,1],
+            'adx':[20,20,20,20],
+            'close':[1,1,1,1],
+            'high':[1,1,1,1],
+            'low':[1,1,1,1]
         })
         res = enterprise.smart_entry_signal(df)
         self.assertIn('buy', res['entry_signal'].values)
         self.assertIn('sell', res['entry_signal'].values)
 
     def test_oms_smart_lot(self):
-        oms = enterprise.OMSManager(100,0.3,0.5,1)
-        lot = oms.smart_lot(3,0.1)
-        self.assertAlmostEqual(lot, min(3/0.1,1))
+        oms = enterprise.OMSManager(100, 0.5, 1)
+        lot = oms.smart_lot(3, 0.1)
+        self.assertAlmostEqual(lot, min(3/0.1, 1))
 
     def test_run_backtest_outputs(self):
         df = pd.DataFrame({

@@ -254,3 +254,7 @@
 ### Added
 - NICEGOLD Enterprise v1.1: OMS manager, relaxed entry, smart sizing, logging improvements
 
+
+## [v1.9.35] — 2025-07-05
+### Added
+- NICEGOLD Enterprise v2.0: ระบบ Risk Sizing ตามเทรนด์และ RR, OMS สมบูรณ์, บันทึกเทรดและ equity curve แบบละเอียด
