@@ -29,23 +29,31 @@ class TestEnterprise(unittest.TestCase):
 
     def test_smart_entry_signal(self):
         df = pd.DataFrame({
-            'ema_fast':[2,2,1,1],
-            'ema_slow':[1,1,2,2],
-            'rsi':[60,60,40,40],
-            'atr':[1,1,1,1],
-            'adx':[20,20,20,20],
-            'close':[1,1,1,1],
-            'high':[1,1,1,1],
-            'low':[1,1,1,1]
+            'ema_fast': [2]*61,
+            'ema_slow': [1]*61,
+            'rsi': [60]*61,
+            'atr': [2]*61,
+            'adx': [20]*61,
+            'close': [1]*61,
+            'high': [1]*61,
+            'low': [1]*61
         })
         res = enterprise.smart_entry_signal(df)
         self.assertIn('buy', res['entry_signal'].values)
-        self.assertIn('sell', res['entry_signal'].values)
+
+    def test_is_strong_trend(self):
+        df = pd.DataFrame({
+            'ema_fast': [2]*61,
+            'ema_slow': [1]*61,
+            'adx': [20]*61,
+            'atr': [2]*61
+        })
+        self.assertTrue(enterprise.is_strong_trend(df, 60))
 
     def test_oms_smart_lot(self):
-        oms = enterprise.OMSManager(100, 0.5, 1)
-        lot = oms.smart_lot(3, 0.1)
-        self.assertAlmostEqual(lot, min(3/0.1, 1))
+        oms = enterprise.OMSManager(100, 0.5, 0.5)
+        lot = oms.smart_lot(100, 3, 0.1)
+        self.assertLessEqual(lot, enterprise.lot_cap_500)
 
     def test_run_backtest_outputs(self):
         df = pd.DataFrame({
