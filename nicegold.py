@@ -1,5 +1,10 @@
 import pandas as pd
 import numpy as np
+
+try:
+    import matplotlib.pyplot as plt
+except Exception:  # pragma: no cover - optional dependency
+    plt = None
 try:
     import yaml
 except Exception:  # pragma: no cover - optional dependency
@@ -367,7 +372,47 @@ def run_backtest(df, cfg):
     else:
         print('Win Rate: N/A (no trades)')
     print('Max Drawdown:', round(max_drawdown * 100, 2), '%')
+    plot_trades(df, df_trades)
     return df_trades
+
+
+def plot_trades(df, trades):
+    """Save a trade visualization plot if matplotlib is available."""
+    if plt is None:
+        return
+    plt.figure(figsize=(15, 6))
+    plt.plot(df['timestamp'], df['close'], label='Price', alpha=0.6)
+    for _, t in trades.iterrows():
+        if t['exit'] == 'SL':
+            plt.axvline(t['entry_time'], color='red', alpha=0.2)
+        elif t['exit'] == 'TP2':
+            plt.axvline(t['entry_time'], color='green', alpha=0.2)
+        else:
+            plt.axvline(t['entry_time'], color='orange', alpha=0.2)
+    plt.title('Entry Points')
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig('trade_plot.png')
+    plt.close()
+
+
+def walk_forward_test(df, cfg, fold_days=60):
+    """Execute walk-forward validation across multiple folds."""
+    step = int(fold_days * 24 * 60)
+    total = len(df)
+    fold = 0
+    results = []
+    for start in range(0, total - step, step):
+        end = start + step
+        fold_df = df.iloc[start:end].copy()
+        fold_df = compute_features(fold_df)
+        fold_df = train_signal_model(fold_df)
+        print(f"\n=== Fold {fold + 1} ===")
+        df_trades = run_backtest(fold_df, cfg)
+        results.append(df_trades)
+        fold += 1
+    return pd.concat(results) if results else pd.DataFrame()
 
 # === Apply Strategy ===
 def run_backtest_cli():  # pragma: no cover
