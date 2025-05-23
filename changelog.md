@@ -119,3 +119,8 @@
 - Patch G-FixNoTrade-NaNATR: Drop rows with NaN indicators before backtest
 - `run()` now drops NaN ATR/RSI/EMA35 rows before generating signals
 
+## [v1.9.11] — 2025-06-12
+### Added
+- Script `convert_csv_ad_to_be` for converting AD dates to Buddhist Era
+- Additional unit test for the new function
+

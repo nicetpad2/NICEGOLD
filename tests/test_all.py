@@ -378,6 +378,17 @@ class TestNewFunctions(unittest.TestCase):
         self.assertIsInstance(trades, pd.DataFrame)
 
 
+class TestConvertCSV(unittest.TestCase):
+    @unittest.skipUnless(pandas_available and numpy_available, 'requires pandas and numpy')
+    def test_convert_csv_ad_to_be(self):
+        csv_data = """Date,Timestamp,Open
+20240501,0:00:00,1
+20240502,0:15:00,1
+"""
+        df = nicegold.convert_csv_ad_to_be(io.StringIO(csv_data))
+        self.assertEqual(df['date'].tolist(), ['25670501', '25670502'])
+
+
 
 class TestLogging(unittest.TestCase):
     def test_get_logger(self):
