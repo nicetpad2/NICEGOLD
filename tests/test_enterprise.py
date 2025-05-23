@@ -27,6 +27,12 @@ class TestEnterprise(unittest.TestCase):
         for col in ['ema_fast','ema_slow','rsi','atr','adx']:
             self.assertIn(col, res.columns)
 
+    def test_rsi_function(self):
+        ser = pd.Series([1,2,3,4,5,6,7,8,9,10], dtype=float)
+        res = enterprise.rsi(ser, period=5)
+        self.assertEqual(len(res), len(ser))
+        self.assertGreater(res.iloc[-1], 50)
+
     def test_smart_entry_signal(self):
         df = pd.DataFrame({
             'ema_fast': [2]*61,

@@ -295,3 +295,9 @@
 - ฟังก์ชัน `run_backtest_multi_tf` และ `smart_entry_signal_multi_tf`
 - `calc_indicators` รองรับกำหนดค่า period
 
+## [v1.9.44] — 2025-07-14
+### Added
+- ฟังก์ชัน `rsi` สำหรับคำนวณค่า Relative Strength Index
+- `calc_indicators` ปรับให้เรียกใช้ `rsi`
+- `add_m15_context_to_m1` ใช้ `merge_asof` บนดัชนี
+

@@ -218,6 +218,17 @@ def load_data(path):
     df = df.sort_values('timestamp').reset_index(drop=True)
     return df
 
+def rsi(series, period=14):
+    """Calculate Relative Strength Index (RSI)."""
+    logger.debug("[Patch] Calculating RSI with period %d", period)
+    delta = series.diff()
+    gain = delta.where(delta > 0, 0.0)
+    loss = -delta.where(delta < 0, 0.0)
+    avg_gain = gain.rolling(window=period, min_periods=period).mean()
+    avg_loss = loss.rolling(window=period, min_periods=period).mean()
+    rs = avg_gain / (avg_loss + 1e-10)
+    return 100 - (100 / (1 + rs))
+
 def calc_indicators(df, ema_fast_period=None, ema_slow_period=None, rsi_period=14):
     logger.info("[Patch] Calculating indicators")
     if ema_fast_period is None:
@@ -228,11 +239,7 @@ def calc_indicators(df, ema_fast_period=None, ema_slow_period=None, rsi_period=1
     df['ema_slow'] = df['close'].ewm(span=ema_slow_period, adjust=False).mean()
     df['ema_fast_htf'] = df['close'].ewm(span=ema_fast_period * 4, adjust=False).mean()
     df['ema_slow_htf'] = df['close'].ewm(span=ema_slow_period * 4, adjust=False).mean()
-    df['rsi'] = df['close'].rolling(rsi_period).apply(
-        lambda x: 100 - 100 / (1 + (np.mean(np.clip(np.diff(x), 0, None)) /
-                                   (np.mean(np.clip(-np.diff(x), 0, None)) + 1e-6))),
-        raw=False
-    )
+    df['rsi'] = rsi(df['close'], rsi_period)
     df['atr'] = (df['high'] - df['low']).rolling(14).mean()
     up_move = df['high'].diff().clip(lower=0)
     down_move = -df['low'].diff().clip(upper=0)
@@ -255,15 +262,20 @@ def add_m15_context_to_m1(df_m1, df_m15):
     """[Patch] Join M15 trend/indicator context onto M1 DataFrame by nearest timestamp."""
     import pandas as pd
     logger.info("[Patch] Add M15 trend context to M1")
-    df_m15 = df_m15.copy().sort_values('timestamp').set_index('timestamp')
+    df_m15 = df_m15.copy().sort_index()
     m15_cols = ['ema_fast', 'ema_slow', 'rsi']
     df_m15_ctx = df_m15[m15_cols].rename(columns={
         'ema_fast': 'm15_ema_fast',
         'ema_slow': 'm15_ema_slow',
         'rsi': 'm15_rsi'
     })
-    df_m1 = df_m1.sort_values('timestamp')
-    df_m1 = pd.merge_asof(df_m1, df_m15_ctx, left_on='timestamp', right_index=True, direction='backward')
+    df_m1 = pd.merge_asof(
+        df_m1.sort_index(),
+        df_m15_ctx,
+        left_index=True,
+        right_index=True,
+        direction='backward'
+    )
     return df_m1
 
 
