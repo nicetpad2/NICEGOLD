@@ -167,6 +167,39 @@ def calculate_trend_confirm(df, price_col='close'):
     logger.debug("Trend confirm column added")
     return df
 
+def is_trending(df, i):
+    """ตรวจสอบว่าตลาดมีเทรนด์จริงหรือไม่"""
+    if i < 100:
+        return False
+    ema_fast = df['ema_fast'].iloc[i]
+    ema_slow = df['ema_slow'].iloc[i]
+    atr = df['atr'].iloc[i]
+    atr_med = df['atr'].rolling(100).median().iloc[i]
+    return (ema_fast > ema_slow) and (atr > atr_med)
+
+def is_confirm_bar(df, i, direction):
+    """ตรวจสอบว่าแท่งปัจจุบันเป็นแท่งยืนยันขาเข้าหรือไม่"""
+    if i < 20:
+        return False
+    if direction == 'buy':
+        is_breakout = df['high'].iloc[i] >= df['high'].rolling(20).max().iloc[i-1]
+        is_wrb = (df['high'].iloc[i] - df['low'].iloc[i]) > 1.5 * df['atr'].iloc[i]
+        is_engulf = (
+            (df['close'].iloc[i] > df['open'].iloc[i]) and
+            (df['open'].iloc[i] < df['low'].iloc[i-1]) and
+            (df['close'].iloc[i] > df['high'].iloc[i-1])
+        )
+        return is_breakout or is_wrb or is_engulf
+    else:
+        is_breakout = df['low'].iloc[i] <= df['low'].rolling(20).min().iloc[i-1]
+        is_wrb = (df['high'].iloc[i] - df['low'].iloc[i]) > 1.5 * df['atr'].iloc[i]
+        is_engulf = (
+            (df['close'].iloc[i] < df['open'].iloc[i]) and
+            (df['open'].iloc[i] > df['high'].iloc[i-1]) and
+            (df['close'].iloc[i] < df['low'].iloc[i-1])
+        )
+        return is_breakout or is_wrb or is_engulf
+
 def label_wave_phase(df):
     logger.debug("Labeling wave phase")
     divergence = df.get('divergence', pd.Series(None, index=df.index, dtype=object))
@@ -604,6 +637,8 @@ def run_backtest_cli():  # pragma: no cover
     position = None
     trades = []
     equity_curve = []
+    qa_reason_win = []
+    qa_reason_loss = []
     peak_capital = capital  # ติดตามจุดสูงสุดของพอร์ตเพื่อคำนวณ drawdown [Patch]
     atr_rolling_mean = df['atr'].rolling(50).mean().bfill().values  # ATR เฉลี่ย 50 แท่ง สำหรับตรวจสอบ volatility [Patch]
 
@@ -630,6 +665,11 @@ def run_backtest_cli():  # pragma: no cover
             if df['atr'].iat[i] > atr_rolling_mean[i] * extreme_vol_factor:
                 allow_reentry = False  # ไม่เข้าในแท่งที่ ATR พุ่งสูงเกิน 2 เท่าค่าเฉลี่ย [Patch: ATR Regime Filter]
             if row['entry_signal'] in ['buy', 'sell'] and not row['spike'] and (i - last_entry_idx) > cooldown_bars and allow_reentry:
+                # กรองเฉพาะช่วงที่ตลาดมีเทรนด์จริง และมีแท่งยืนยันการเข้า
+                if not is_trending(df, i):
+                    continue
+                if not is_confirm_bar(df, i, row['entry_signal']):
+                    continue
                 # เข้าใหม่เฉพาะช่วงเวลาตลาดหลักที่มีสภาพคล่องสูง (13:00-22:00) [Patch]
                 hour = row['timestamp'].hour
                 if hour < 13 or hour > 22:
@@ -782,6 +822,10 @@ def run_backtest_cli():  # pragma: no cover
                         'exit': 'TP1',
                         'reason_exit': 'Partial profit taken'
                     })
+                    if pnl > 0:
+                        qa_reason_win.append(position['reason_entry'])
+                    else:
+                        qa_reason_loss.append(position['reason_entry'])
                 if row['high'] >= position['tp'] - pip_size * 0.5:
                     position['sl'] = max(position['sl'], row['close'] - pip_size * 0.5)  # รัด SL เข้ามาใกล้ราคาปัจจุบัน [Patch: Tighten SL near TP]
                 # Trailing Stop หลัง TP1 ให้ SL ตามหลังราคาด้วย ATR
@@ -814,6 +858,10 @@ def run_backtest_cli():  # pragma: no cover
                         'reason_exit': reason_exit
                     })
                     if pnl > 0:
+                        qa_reason_win.append(position['reason_entry'])
+                    else:
+                        qa_reason_loss.append(position['reason_entry'])
+                    if pnl > 0:
                         consecutive_loss = 0
                         consecutive_win += 1
                         prev_trade_result = 'TP'
@@ -843,6 +891,10 @@ def run_backtest_cli():  # pragma: no cover
                         'exit': exit_label,
                         'reason_exit': reason_exit
                     })
+                    if pnl > 0:
+                        qa_reason_win.append(position['reason_entry'])
+                    else:
+                        qa_reason_loss.append(position['reason_entry'])
                     consecutive_loss = 0
                     consecutive_win += 1
                     prev_trade_result = 'TP'
@@ -859,6 +911,10 @@ def run_backtest_cli():  # pragma: no cover
                     position['tp1_hit'] = True
                     trades.append({**position, 'exit_time': row['timestamp'], 'exit_price': position['entry'] - pip_size * sl_multiplier,
                                    'pnl': pnl, 'commission': commission, 'capital': capital, 'exit': 'TP1', 'reason_exit': 'Partial profit taken'})
+                    if pnl > 0:
+                        qa_reason_win.append(position['reason_entry'])
+                    else:
+                        qa_reason_loss.append(position['reason_entry'])
                 if row['low'] <= position['tp'] + pip_size * 0.5:
                     position['sl'] = min(position['sl'], row['close'] + pip_size * 0.5)
                 if position['tp1_hit']:
@@ -880,10 +936,15 @@ def run_backtest_cli():  # pragma: no cover
                     trades.append({**position, 'exit_time': row['timestamp'], 'exit_price': exit_price, 'pnl': pnl,
                                    'commission': commission, 'capital': capital, 'exit': 'SL', 'reason_exit': reason_exit})
                     if pnl > 0:
+                        qa_reason_win.append(position['reason_entry'])
+                    else:
+                        qa_reason_loss.append(position['reason_entry'])
+                    if pnl > 0:
                         consecutive_loss = 0; consecutive_win += 1; prev_trade_result = 'TP'
                     else:
                         consecutive_loss += 1; consecutive_win = 0; prev_trade_result = 'SL'
-                    last_exit_idx = i; position = None
+                    last_exit_idx = i
+                    position = None
                 elif row['low'] <= position['tp']:
                     exit_price = position['tp']
                     direction = -1
@@ -895,8 +956,20 @@ def run_backtest_cli():  # pragma: no cover
                     reason_exit = "Final Take Profit hit"
                     trades.append({**position, 'exit_time': row['timestamp'], 'exit_price': exit_price, 'pnl': pnl,
                                    'commission': commission, 'capital': capital, 'exit': exit_label, 'reason_exit': reason_exit})
+                    if pnl > 0:
+                        qa_reason_win.append(position['reason_entry'])
+                    else:
+                        qa_reason_loss.append(position['reason_entry'])
                     consecutive_loss = 0; consecutive_win += 1; prev_trade_result = 'TP'
-                    last_exit_idx = i; position = None
+                    last_exit_idx = i
+                    position = None
+
+        # [Patch] QA: หาก winrate < 35% ใน 50 ไม้ล่าสุด ให้แจ้งเตือน
+        if len(trades) >= 50:
+            last50 = [t['pnl'] for t in trades[-50:] if 'pnl' in t]
+            winrate50 = sum(1 for p in last50 if p > 0) / max(len(last50), 1)
+            if winrate50 < 0.35:
+                logger.warning(f"[QA] Recent Winrate {winrate50:.2%} < 35% in last 50 trades -- STRATEGY PAUSED!")
 
         if capital < kill_switch_threshold:
             kill_switch_triggered = True
@@ -915,6 +988,10 @@ def run_backtest_cli():  # pragma: no cover
         print("Winrate: N/A (no trades)")
     if kill_switch_triggered:
         print("Kill switch activated: capital below threshold")
+
+    from collections import Counter
+    print("[QA] Top Winning Entry Reasons:", Counter(qa_reason_win).most_common(3))
+    print("[QA] Top Losing Entry Reasons:", Counter(qa_reason_loss).most_common(3))
 
     df_equity = pd.DataFrame(equity_curve)
     now_str = datetime.now().strftime("%Y%m%d_%H%M%S")

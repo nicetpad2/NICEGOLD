@@ -458,6 +458,27 @@ class TestPatchGFix2(unittest.TestCase):
         self.assertIn('trade_log_', src)
         self.assertIn('equity_curve_', src)
 
+class TestTrendConfirmFunctions(unittest.TestCase):
+    @unittest.skipUnless(pandas_available and numpy_available, 'requires pandas and numpy')
+    def test_is_trending_and_confirm(self):
+        df = pd.DataFrame({
+            'ema_fast': [1]*200,
+            'ema_slow': [0.5]*200,
+            'atr': np.linspace(0.1, 1, 200),
+            'high': np.linspace(1,2,200),
+            'low': np.linspace(0.5,1.5,200),
+            'open': np.linspace(1,2,200),
+            'close': np.linspace(1,2,200)
+        })
+        self.assertTrue(nicegold.is_trending(df, 150))
+        self.assertTrue(nicegold.is_confirm_bar(df.assign(high=df['high']*1.1), 150, 'buy'))
+
+    def test_run_backtest_cli_uses_trend_confirm(self):
+        import inspect
+        src = inspect.getsource(nicegold.run_backtest_cli)
+        self.assertIn('is_trending', src)
+        self.assertIn('is_confirm_bar', src)
+
 
 if __name__ == '__main__':  # pragma: no cover
     unittest.main()
