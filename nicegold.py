@@ -29,6 +29,8 @@ CONFIG_PATH = "config.yaml"
 TRADE_DIR = "/content/drive/MyDrive/NICEGOLD/logs"
 os.makedirs(TRADE_DIR, exist_ok=True)
 
+M15_PATH = "/content/drive/MyDrive/NICEGOLD/XAUUSD_M15.csv"
+M1_PATH = "/content/drive/MyDrive/NICEGOLD/XAUUSD_M1.csv"
 # === Default Parameters (Updated) ===
 initial_capital = 100.0
 risk_per_trade = 0.05  # เพิ่มความเสี่ยงต่อไม้เป็น 5% ของทุน เพื่อเร่งการเติบโต [Patch: Increase Risk]
@@ -1153,7 +1155,6 @@ def check_drawdown(capital: float, peak_capital: float, limit: float = 0.30) -> 
     logger.debug("Current drawdown: %s", drawdown)
     return drawdown > limit
 
-
 def backtest_with_partial_tp(df):
     """ทดสอบกลยุทธ์พร้อม TP1 และเบรกอีเวน"""
     logger.debug("Starting simple backtest with partial TP")
@@ -1242,3 +1243,161 @@ def run():
 
 if __name__ == "__main__":  # pragma: no cover
     run_backtest_cli()
+# === SMC Multi-Timeframe Utilities ===
+def load_csv_m15(path: str = M15_PATH) -> pd.DataFrame:
+    """Load M15 CSV data"""
+    logger.debug("Loading M15 data from %s", path)
+    df = pd.read_csv(path)
+    df.columns = [c.lower() for c in df.columns]
+    df['timestamp'] = pd.to_datetime(df['timestamp'])
+    df['atr'] = (df['high'] - df['low']).rolling(14).mean()
+    return df
+
+
+def load_csv_m1(path: str = M1_PATH) -> pd.DataFrame:
+    """Load M1 CSV data"""
+    logger.debug("Loading M1 data from %s", path)
+    df = pd.read_csv(path)
+    df.columns = [c.lower() for c in df.columns]
+    df['timestamp'] = pd.to_datetime(df['timestamp'])
+    df['atr'] = (df['high'] - df['low']).rolling(14).mean()
+    return df
+
+
+def detect_ob_m15(df_m15: pd.DataFrame) -> pd.DataFrame:
+    """Detect Order Blocks on M15 timeframe"""
+    logger.debug("Detecting OB on M15")
+    obs = []
+    for i in range(2, len(df_m15)):
+        if df_m15['close'].iloc[i-1] < df_m15['open'].iloc[i-1] and \
+           df_m15['high'].iloc[i] > df_m15['high'].iloc[i-2] + df_m15['atr'].iloc[i]*0.6:
+            obs.append({'type': 'bullish', 'zone': df_m15['low'].iloc[i-1], 'idx': i-1, 'time': df_m15['timestamp'].iloc[i-1]})
+        if df_m15['close'].iloc[i-1] > df_m15['open'].iloc[i-1] and \
+           df_m15['low'].iloc[i] < df_m15['low'].iloc[i-2] - df_m15['atr'].iloc[i]*0.6:
+            obs.append({'type': 'bearish', 'zone': df_m15['high'].iloc[i-1], 'idx': i-1, 'time': df_m15['timestamp'].iloc[i-1]})
+    return pd.DataFrame(obs)
+
+
+def detect_fvg_m15(df_m15: pd.DataFrame) -> pd.DataFrame:
+    """Detect Fair Value Gap on M15 timeframe"""
+    logger.debug("Detecting FVG on M15")
+    fvg = []
+    for i in range(1, len(df_m15)-1):
+        if df_m15['low'].iloc[i+1] > df_m15['high'].iloc[i-1]:
+            fvg.append({'type': 'bullish', 'low': df_m15['high'].iloc[i-1], 'high': df_m15['low'].iloc[i+1], 'idx': i, 'time': df_m15['timestamp'].iloc[i]})
+        if df_m15['high'].iloc[i+1] < df_m15['low'].iloc[i-1]:
+            fvg.append({'type': 'bearish', 'low': df_m15['high'].iloc[i+1], 'high': df_m15['low'].iloc[i-1], 'idx': i, 'time': df_m15['timestamp'].iloc[i]})
+    return pd.DataFrame(fvg)
+
+
+def detect_liquidity_grab_m15(df_m15: pd.DataFrame, window: int = 20) -> pd.DataFrame:
+    """Detect liquidity grab zones on M15"""
+    logger.debug("Detecting liquidity grab on M15")
+    lg = []
+    for i in range(window, len(df_m15)):
+        hi = df_m15['high'].iloc[i-window:i].max()
+        lo = df_m15['low'].iloc[i-window:i].min()
+        if df_m15['high'].iloc[i] > hi and df_m15['close'].iloc[i] < hi:
+            lg.append({'type': 'grab_short', 'zone': hi, 'idx': i, 'time': df_m15['timestamp'].iloc[i]})
+        if df_m15['low'].iloc[i] < lo and df_m15['close'].iloc[i] > lo:
+            lg.append({'type': 'grab_long', 'zone': lo, 'idx': i, 'time': df_m15['timestamp'].iloc[i]})
+    return pd.DataFrame(lg)
+
+
+def align_mtf_zones(df_m1: pd.DataFrame, ob_df: pd.DataFrame, fvg_df: pd.DataFrame, lg_df: pd.DataFrame) -> pd.DataFrame:
+    """Map M15 zones onto M1 bars"""
+    logger.debug("Aligning MTF zones")
+    df_m1 = df_m1.copy()
+    df_m1['OB_Bull'] = False
+    df_m1['OB_Bear'] = False
+    df_m1['FVG_Bull'] = False
+    df_m1['FVG_Bear'] = False
+    df_m1['LG_Bull'] = False
+    df_m1['LG_Bear'] = False
+    for i in range(len(df_m1)):
+        ts = df_m1['timestamp'].iloc[i]
+        price = df_m1['close'].iloc[i]
+        bull_ob = ob_df[(ob_df['type']=='bullish') & (ob_df['time'] <= ts)].tail(1)
+        if not bull_ob.empty and price <= bull_ob['zone'].values[0]*1.002 and price >= bull_ob['zone'].values[0]*0.998:
+            df_m1.at[df_m1.index[i], 'OB_Bull'] = True
+        bear_ob = ob_df[(ob_df['type']=='bearish') & (ob_df['time'] <= ts)].tail(1)
+        if not bear_ob.empty and price >= bear_ob['zone'].values[0]*0.998 and price <= bear_ob['zone'].values[0]*1.002:
+            df_m1.at[df_m1.index[i], 'OB_Bear'] = True
+        bull_fvg = fvg_df[(fvg_df['type']=='bullish') & (fvg_df['time'] <= ts)].tail(1)
+        if not bull_fvg.empty and price <= bull_fvg['high'].values[0]*1.002 and price >= bull_fvg['low'].values[0]*0.998:
+            df_m1.at[df_m1.index[i], 'FVG_Bull'] = True
+        bear_fvg = fvg_df[(fvg_df['type']=='bearish') & (fvg_df['time'] <= ts)].tail(1)
+        if not bear_fvg.empty and price >= bear_fvg['low'].values[0]*0.998 and price <= bear_fvg['high'].values[0]*1.002:
+            df_m1.at[df_m1.index[i], 'FVG_Bear'] = True
+        lg_bull = lg_df[(lg_df['type']=='grab_long') & (lg_df['time'] <= ts)].tail(1)
+        if not lg_bull.empty and abs(price-lg_bull['zone'].values[0])<0.5:
+            df_m1.at[df_m1.index[i], 'LG_Bull'] = True
+        lg_bear = lg_df[(lg_df['type']=='grab_short') & (lg_df['time'] <= ts)].tail(1)
+        if not lg_bear.empty and abs(price-lg_bear['zone'].values[0])<0.5:
+            df_m1.at[df_m1.index[i], 'LG_Bear'] = True
+    return df_m1
+
+
+def is_mtf_smc_entry(row: pd.Series):
+    """Determine entry signal from mapped SMC zones"""
+    if row['OB_Bull'] or row['FVG_Bull']:
+        if row['LG_Bull'] and row['close'] > row['open']:
+            return 'buy'
+    if row['OB_Bear'] or row['FVG_Bear']:
+        if row['LG_Bear'] and row['close'] < row['open']:
+            return 'sell'
+    return None
+
+
+def detect_order_block(df: pd.DataFrame, lookback: int = 50) -> pd.DataFrame:
+    """หา Order Block จากแท่ง M1"""
+    logger.debug("Detecting order block M1")
+    ob_zones = []
+    for i in range(2, len(df)):
+        if df['close'].iloc[i-1] < df['open'].iloc[i-1] and df['high'].iloc[i] > df['high'].iloc[i-2] + df['atr'].iloc[i]*0.5:
+            ob_zones.append({'idx': i-1, 'type': 'bullish', 'price': df['low'].iloc[i-1], 'time': df['timestamp'].iloc[i-1]})
+        if df['close'].iloc[i-1] > df['open'].iloc[i-1] and df['low'].iloc[i] < df['low'].iloc[i-2] - df['atr'].iloc[i]*0.5:
+            ob_zones.append({'idx': i-1, 'type': 'bearish', 'price': df['high'].iloc[i-1], 'time': df['timestamp'].iloc[i-1]})
+    return pd.DataFrame(ob_zones)
+
+
+def detect_fvg(df: pd.DataFrame) -> pd.DataFrame:
+    """หา FVG แบบ 3-bar"""
+    logger.debug("Detecting FVG M1")
+    fvg_zones = []
+    for i in range(1, len(df)-1):
+        if df['low'].iloc[i+1] > df['high'].iloc[i-1]:
+            fvg_zones.append({'idx': i, 'type': 'bullish', 'low': df['high'].iloc[i-1], 'high': df['low'].iloc[i+1], 'time': df['timestamp'].iloc[i]})
+        if df['high'].iloc[i+1] < df['low'].iloc[i-1]:
+            fvg_zones.append({'idx': i, 'type': 'bearish', 'low': df['high'].iloc[i+1], 'high': df['low'].iloc[i-1], 'time': df['timestamp'].iloc[i]})
+    return pd.DataFrame(fvg_zones)
+
+
+def detect_liquidity_grab(df: pd.DataFrame, swing_window: int = 30) -> pd.DataFrame:
+    """ตรวจจับ Liquidity Grab/Stop Hunt"""
+    logger.debug("Detecting liquidity grab M1")
+    lg = []
+    for i in range(swing_window, len(df)):
+        swing_high = df['high'].iloc[i-swing_window:i].max()
+        swing_low = df['low'].iloc[i-swing_window:i].min()
+        if df['high'].iloc[i] > swing_high and df['close'].iloc[i] < swing_high:
+            lg.append({'idx': i, 'type': 'grab_short', 'price': swing_high, 'time': df['timestamp'].iloc[i]})
+        if df['low'].iloc[i] < swing_low and df['close'].iloc[i] > swing_low:
+            lg.append({'idx': i, 'type': 'grab_long', 'price': swing_low, 'time': df['timestamp'].iloc[i]})
+    return pd.DataFrame(lg)
+
+
+def is_smc_entry(df: pd.DataFrame, i: int, ob_df: pd.DataFrame, fvg_df: pd.DataFrame, lg_df: pd.DataFrame):
+    """ตัดสินใจเข้าไม้ตาม SMC"""
+    price = df['close'].iloc[i]
+    long_lg = lg_df[(lg_df['type']=='grab_long') & (lg_df['idx']==i)]
+    short_lg = lg_df[(lg_df['type']=='grab_short') & (lg_df['idx']==i)]
+    ob_long = ob_df[(ob_df['type']=='bullish') & (abs(ob_df['idx']-i)<5)]
+    ob_short = ob_df[(ob_df['type']=='bearish') & (abs(ob_df['idx']-i)<5)]
+    fvg_long = fvg_df[(fvg_df['type']=='bullish') & (abs(fvg_df['idx']-i)<5)]
+    fvg_short = fvg_df[(fvg_df['type']=='bearish') & (abs(fvg_df['idx']-i)<5)]
+    if not long_lg.empty and (not ob_long.empty or not fvg_long.empty) and is_confirm_bar(df, i, 'buy'):
+        return 'buy'
+    if not short_lg.empty and (not ob_short.empty or not fvg_short.empty) and is_confirm_bar(df, i, 'sell'):
+        return 'sell'
+    return None

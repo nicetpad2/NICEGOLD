@@ -205,3 +205,8 @@
 ### Added
 - ฟังก์ชัน `qa_log_step` สำหรับแสดงข้อความทุกขั้นตอน
 - เรียกใช้ใน `run_backtest_cli` และ `run`
+## [v1.9.26] — 2025-06-26
+### Added
+- เพิ่มชุดฟังก์ชัน SMC Multi-Timeframe และตัวช่วยตรวจจับโซน
+- ฟังก์ชันใหม่ `detect_order_block`, `detect_fvg`, `detect_liquidity_grab`, `is_smc_entry`
+

@@ -508,6 +508,41 @@ class TestEnhancedRunBacktest(unittest.TestCase):
         for col in ['type', 'reason_entry', 'risk_price', 'risk_amount']:
             self.assertIn(col, trades.columns)
 
+class TestSMCMultiTimeframe(unittest.TestCase):
+    @unittest.skipUnless(pandas_available and numpy_available, "requires pandas and numpy")
+    def test_align_mtf_zones_columns(self):
+        df_m1 = pd.DataFrame({
+            "timestamp": pd.date_range("2020-01-01", periods=1, freq="min"),
+            "open": [1.0],
+            "high": [1.0],
+            "low": [1.0],
+            "close": [1.0]
+        })
+        ob = pd.DataFrame({"type":["bullish"],"zone":[1.0],"idx":[0],"time":[df_m1["timestamp"].iloc[0]]})
+        fvg = pd.DataFrame({"type":["bullish"],"low":[0.9],"high":[1.1],"idx":[0],"time":[df_m1["timestamp"].iloc[0]]})
+        lg = pd.DataFrame({"type":["grab_long"],"zone":[1.0],"idx":[0],"time":[df_m1["timestamp"].iloc[0]]})
+        res = nicegold.align_mtf_zones(df_m1.copy(), ob, fvg, lg)
+        self.assertIn("OB_Bull", res.columns)
+        self.assertIn("FVG_Bull", res.columns)
+        self.assertIn("LG_Bull", res.columns)
+
+    @unittest.skipUnless(pandas_available and numpy_available, "requires pandas and numpy")
+    def test_is_smc_entry_buy(self):
+        df = pd.DataFrame({
+            "open": [1.0, 1.2, 0.8],
+            "close": [1.0, 1.0, 1.0],
+            "high": [1.0, 1.3, 1.5],
+            "low": [0.9, 0.9, 0.7],
+            "timestamp": pd.date_range("2020-01-01", periods=3, freq="min")
+        })
+        df["atr"] = 0.1
+        ob_df = nicegold.detect_order_block(df)
+        fvg_df = pd.DataFrame(columns=["idx","type","low","high","time"])
+        lg_df = nicegold.detect_liquidity_grab(df, swing_window=2)
+        from unittest.mock import patch
+        with patch.object(nicegold, "is_confirm_bar", return_value=True):
+            signal = nicegold.is_smc_entry(df, 2, ob_df, fvg_df, lg_df)
+        self.assertEqual(signal, "buy")
 
 class TestQAStepLogging(unittest.TestCase):
     def test_qa_log_step_logs_info(self):
