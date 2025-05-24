@@ -652,10 +652,10 @@ class TestSpikeNewsGuard(unittest.TestCase):
                 "timestamp": pd.date_range("2020-01-01", periods=4, freq="min"),
             }
         )
-        res = enterprise.smart_entry_signal_enterprise_v1(df, force_entry_gap=1)
+        res = enterprise.smart_entry_signal_enterprise_v1(df)
         self.assertEqual(res["entry_signal"].tolist(), ["buy", "buy", "sell", "sell"])
 
-    def test_entry_count_drop_warning(self):
+    def test_entry_count_tracking(self):
         enterprise._PREV_ENTRY_COUNT = None
         df1 = pd.DataFrame({
             "ema_fast": [2, 2],
@@ -667,12 +667,27 @@ class TestSpikeNewsGuard(unittest.TestCase):
             "wave_phase": ["trough", "trough"],
             "timestamp": pd.date_range("2020-01-01", periods=2, freq="min"),
         })
-        enterprise.smart_entry_signal_enterprise_v1(df1, force_entry_gap=1)
+        enterprise.smart_entry_signal_enterprise_v1(df1)
+        self.assertEqual(enterprise._PREV_ENTRY_COUNT, 2)
         df2 = df1.iloc[:1]
-        logger = enterprise.logger
-        with self.assertLogs(logger, level="WARNING") as cm:
-            enterprise.smart_entry_signal_enterprise_v1(df2, force_entry_gap=1)
-        self.assertTrue(any("Entry count dropped" in m for m in cm.output))
+        enterprise.smart_entry_signal_enterprise_v1(df2)
+        self.assertEqual(enterprise._PREV_ENTRY_COUNT, 1)
+
+    def test_mid_wave_entry(self):
+        df = pd.DataFrame(
+            {
+                "ema_fast": [2, 2, 0],
+                "ema_slow": [1, 1, 1],
+                "rsi": [60, 60, 40],
+                "adx": [20, 20, 20],
+                "gain_z": [0.6, 0.6, -0.6],
+                "divergence": ["none", "none", "none"],
+                "wave_phase": ["mid", "mid", "mid"],
+                "timestamp": pd.date_range("2020-01-01", periods=3, freq="min"),
+            }
+        )
+        res = enterprise.smart_entry_signal_enterprise_v1(df)
+        self.assertEqual(res["entry_signal"].tolist(), ["buy", "buy", "sell"])
 
     def test_strict_recovery_entry_conditions(self):
         class DummyOMS(enterprise.OMSManager):
