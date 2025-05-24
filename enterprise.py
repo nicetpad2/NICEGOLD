@@ -22,6 +22,9 @@ M15_PATH = "/content/drive/MyDrive/NICEGOLD/XAUUSD_M15.csv"
 # [Patch] Enable full RAM mode
 MAX_RAM_MODE = True  # เปิดโหมดใช้แรมหนัก
 
+# [Patch QA] Store previous entry count for QA guard
+_PREV_ENTRY_COUNT = None
+
 # [Patch] Log RAM usage helper
 def log_ram_usage(note=""):
     if psutil is None:
@@ -33,29 +36,29 @@ def log_ram_usage(note=""):
 
 # [Patch] Parameters – MM & Growth
 initial_capital = 100.0
-risk_per_trade = 0.01  # [Patch] ลดความเสี่ยงต่อไม้เหลือ 1%
-tp1_mult = 2.0  # [Patch] ปรับ TP1 multiplier ตามความเป็นจริง
-tp2_mult = 4.0  # [Patch] ปรับ TP2 multiplier ตามความเป็นจริง
-sl_mult = 1.2  # [Patch] ลด SL multiplier ให้ใกล้เคียงตลาดจริง
+risk_per_trade = 0.03  # [Patch] increased to 3% per trade to accelerate portfolio growth
+tp1_mult = 3.0   # [Patch] larger TP1 to capture medium moves
+tp2_mult = 6.0   # [Patch] larger TP2 to capture big trends
+sl_mult = 1.0   # [Patch] tighter SL in strong trends
 min_sl_dist = 4.0  # [Patch] ระยะ SL ขั้นต่ำสมจริง
-lot_max = 5.0  # [Patch] ปลดลิมิตให้สามารถปั้นพอร์ตโต
+lot_max = 10.0  # [Patch] raise max lot cap to support equity scaling
 lot_cap_500 = 0.5
 lot_cap_2000 = 1.0
 lot_cap_10000 = 2.5
 lot_cap_max = 5.0
 cooldown_bars = 0  # [Patch] ไม่มี cooldown
-oms_recovery_loss = 3  # [Patch] Recovery เร็วขึ้น (จาก 4 → 3)
+oms_recovery_loss = 2   # [Patch] trigger recovery mode after 2 consecutive losses
 win_streak_boost = 1.3  # [Patch] Boost สูงขึ้น
 recovery_multiplier = 3.0  # [Patch] Aggressive recovery
 trailing_atr_mult = 1.1
 kill_switch_dd = 0.35  # [Patch] Kill switch หาก DD > 35%
 trend_lookback = 25  # [Patch] เร็วขึ้น (trend สั้นลง)
 adx_period = 14
-adx_thresh = 12  # [Patch] Relax adx guard
-adx_strong = 23  # [Patch] ปรับ adx strong
-force_entry_gap = 300  # [Patch] Force entry หากไม่มี order เกิน 300 แท่ง
-trade_start_hour = 8
-trade_end_hour = 23
+adx_thresh = 12  # [Patch] ADX below this = low momentum
+adx_strong = 23  # [Patch] ADX above this = strong trend
+force_entry_gap = 200   # [Patch] reduce gap to increase trade frequency
+trade_start_hour = 0   # [Patch] allow trading from midnight
+trade_end_hour = 24  # [Patch] until end of day (24h trading)
 
 # [Patch] Commission, Spread, Slippage สมจริง
 SPREAD_POINTS = 80
@@ -128,6 +131,18 @@ def generate_signal(
     if force_entry:
         logger.debug("Force entry active")
         return True
+    # [Patch] require minimum aggregated signal score
+    if indicators.get("signal_score", 0) < 2:
+        logger.debug("[Patch] signal_score < 2, skip entry")
+        return False
+    # [Patch] multi-timeframe M15 trend confirmation
+    if "m15_ema_fast" in indicators and "m15_ema_slow" in indicators:
+        if intended_side == "BUY" and indicators["m15_ema_fast"] < indicators["m15_ema_slow"]:
+            logger.debug("[Patch] M15 trend not bullish, skip BUY")
+            return False
+        if intended_side == "SELL" and indicators["m15_ema_fast"] > indicators["m15_ema_slow"]:
+            logger.debug("[Patch] M15 trend not bearish, skip SELL")
+            return False
     session_ok = is_in_session(current_time, allowed_sessions)
     trend_ok = (
         indicators["EMA50"] > indicators["EMA200"]
@@ -148,11 +163,26 @@ def generate_signal(
     return False
 
 
-def calculate_position_size(equity, entry_price, stop_price, risk_pct):
+def calculate_position_size(equity, entry_price, stop_price, risk_pct, indicators):
+    # [Patch] dynamic risk scaling by ADX momentum
+    adx = indicators.get("ADX", 0)
+    if adx > adx_strong:
+        risk_pct *= 1.5
+        logger.debug("[Patch] ADX>strong, risk_pct boosted to %.2f%%", risk_pct * 100)
+    elif adx < adx_thresh:
+        risk_pct *= 0.75
+        logger.debug("[Patch] ADX<thresh, risk_pct reduced to %.2f%%", risk_pct * 100)
     risk_amount = equity * risk_pct
     pip_value = get_pip_value(symbol="XAUUSD", lot=1)
     stop_pips = abs(entry_price - stop_price) / pip_value
     lot = risk_amount / (stop_pips * pip_value)
+    # [Patch] dynamic lot cap by equity bands
+    lot_cap = lot_max / 4
+    if equity > 1_000:
+        lot_cap = lot_max / 2
+    if equity > 5_000:
+        lot_cap = lot_max
+    lot = min(lot, lot_cap)
     logger.debug(
         "[Patch] Calculated position size = %.2f lots for risk %.1f%% and stop %.1f pips",
         lot,
@@ -858,6 +888,38 @@ def multi_session_trend_scalping(df):
     return df
 
 
+def entry_signal_trend_scalp(df, force_gap=200):
+    """Trend scalping entry signal with periodic force entry."""
+    logger.info("[Patch] Trend Scalping + Force Entry")
+    df = df.copy()
+    df["entry_signal"] = None
+    atr_threshold = df["atr"].quantile(0.6)
+    trend_buy = (
+        (df["ema_fast"] > df["ema_slow"]) & (df["rsi"] > 51) & (df["adx"] > 12) & (df["atr"] > atr_threshold)
+    )
+    trend_sell = (
+        (df["ema_fast"] < df["ema_slow"]) & (df["rsi"] < 49) & (df["adx"] > 12) & (df["atr"] > atr_threshold)
+    )
+    df.loc[trend_buy, "entry_signal"] = "buy"
+    df.loc[trend_sell, "entry_signal"] = "sell"
+    last_entry = 0
+    for i in range(len(df)):
+        if pd.notna(df["entry_signal"].iloc[i]):
+            last_entry = i
+        elif i - last_entry > force_gap:
+            if df["ema_fast"].iloc[i] > df["ema_slow"].iloc[i]:
+                df.at[i, "entry_signal"] = "buy"
+            else:
+                df.at[i, "entry_signal"] = "sell"
+            last_entry = i
+    logger.info(
+        "[Patch] Trend Scalping Entry: buy=%d, sell=%d",
+        (df["entry_signal"] == "buy").sum(),
+        (df["entry_signal"] == "sell").sum(),
+    )
+    return df
+
+
 def smart_entry_signal(df):
     logger.info(
         "[Patch] Vectorized entry signal (trend+min SL guard+relax+force entry)"
@@ -1208,6 +1270,34 @@ def calc_adaptive_lot(equity, adx, recovery_mode=False, win_streak=0):
     )
     return lot
 
+
+# [Patch] Aggressive lot sizing (no strict cap)
+def calc_aggressive_lot(capital, entry_sl_dist):
+    base_risk = risk_per_trade
+    lot = (capital * base_risk) / max(entry_sl_dist, min_sl_dist)
+    lot = max(0.01, min(lot, lot_max))
+    logger.info(
+        "[Patch] Aggressive lot sizing: cap=%.2f, sl_dist=%.2f, lot=%.3f",
+        capital,
+        entry_sl_dist,
+        lot,
+    )
+    return lot
+
+
+def run_backtest_aggressive(path=None):
+    """Run aggressive entry backtest (machine gun mode)."""
+    logger.info("[Patch] Running backtest: Aggressive Entry")
+    if path is None:
+        path = M1_PATH
+    df = load_data(path)
+    df = data_quality_check(df)
+    df = calc_indicators(df)
+    df = calc_dynamic_tp2(df)
+    df = entry_signal_always_on(df, mode="alternate")
+    trades = _execute_backtest(df)
+    return trades
+
 def smart_entry_signal_enterprise_v1(df, force_entry_gap=300):
     """
     [Patch] Multi-confirm Entry: EMA, ADX, RSI, Divergence, Gain_Z, Wave_Phase
@@ -1268,6 +1358,11 @@ def smart_entry_signal_enterprise_v1(df, force_entry_gap=300):
         (df["entry_signal"] == "buy").sum(),
         (df["entry_signal"] == "sell").sum(),
     )
+    order_count = df["entry_signal"].notna().sum()
+    prev_count = globals().get("_PREV_ENTRY_COUNT")
+    if prev_count is not None and order_count < prev_count:
+        logger.warning("[Patch QA] Entry count dropped! Revert/relax entry logic.")
+    globals()["_PREV_ENTRY_COUNT"] = order_count
     return df
 
 def smart_entry_signal_goldai2025_style(df):
@@ -1442,14 +1537,32 @@ def _execute_backtest(df):
         ):
             direction = row["entry_signal"]
             # [Patch] Recovery Mode Strict Confirm
-            if oms.recovery_mode:
-                valid = False
-                if direction == "buy":
-                    valid = (row.get("divergence") == "bullish") or (row.get("gain_z", 0) > 0)
-                else:
-                    valid = (row.get("divergence") == "bearish") or (row.get("gain_z", 0) < 0)
-                if not valid:
-                    logger.info("[Patch QA] Recovery confirm fail at %s, skip entry", row["timestamp"])
+            strict_mode = oms.recovery_mode and oms.loss_streak >= 4
+            if strict_mode:
+                allow = (
+                    row.get("adx", 0) > 20
+                    and (
+                        (direction == "buy" and row.get("divergence") == "bullish")
+                        or (direction == "sell" and row.get("divergence") == "bearish")
+                    )
+                    and (
+                        (direction == "buy" and row.get("gain_z", 0) > 0.7)
+                        or (direction == "sell" and row.get("gain_z", 0) < -0.7)
+                    )
+                )
+                if not allow:
+                    logger.debug("[Patch] Strict entry reject at %s", row["timestamp"])
+                    continue
+            elif oms.recovery_mode:
+                allow = (
+                    row.get("adx", 0) > 12
+                    and (
+                        (direction == "buy" and row.get("rsi", 0) > 51)
+                        or (direction == "sell" and row.get("rsi", 0) < 49)
+                    )
+                )
+                if not allow:
+                    logger.debug("[Patch] Relax entry reject at %s", row["timestamp"])
                     continue
             price_range = max(row["high"] - row["low"], 1e-6)
             upper_wick_ratio = (row["high"] - row["close"]) / price_range
@@ -1471,6 +1584,7 @@ def _execute_backtest(df):
                     continue
             atr = max(row["atr"], min_sl_dist)
             entry = row["close"]
+            # [Patch] apply updated TP/SL multipliers
             sl = entry - atr * sl_mult if direction == "buy" else entry + atr * sl_mult
             tp1 = (
                 entry + atr * tp1_mult if direction == "buy" else entry - atr * tp1_mult

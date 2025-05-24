@@ -6,7 +6,8 @@ import enterprise as runtime
 class TestRuntime(unittest.TestCase):
     def test_generate_signal_true(self):
         price = {"breakout": True}
-        ind = {"EMA50": 2, "EMA200": 1, "ADX": 30, "ADX_trend": "BUY"}
+        ind = {"EMA50": 2, "EMA200": 1, "ADX": 30, "ADX_trend": "BUY", "signal_score": 2,
+               "m15_ema_fast": 2, "m15_ema_slow": 1}
         now = datetime(2020, 1, 1, 10)
         self.assertTrue(
             runtime.generate_signal(
@@ -19,7 +20,8 @@ class TestRuntime(unittest.TestCase):
         )
 
     def test_calculate_position_size(self):
-        lot = runtime.calculate_position_size(1000, 10, 9.5, 0.01)
+        indicators = {"ADX": 30}
+        lot = runtime.calculate_position_size(1000, 10, 9.5, 0.01, indicators)
         self.assertGreater(lot, 0)
 
     def test_on_order_execute_and_update(self):
@@ -42,6 +44,13 @@ class TestRuntime(unittest.TestCase):
         p.drawdown = 0.01
         runtime.manage_recovery(p)
         self.assertFalse(p.recovery_active)
+
+    def test_calculate_position_size_risk_scaling(self):
+        ind_low = {"ADX": 10}
+        ind_high = {"ADX": 40}
+        lot_low = runtime.calculate_position_size(100, 10, 9, 0.01, ind_low)
+        lot_high = runtime.calculate_position_size(100, 10, 9, 0.01, ind_high)
+        self.assertGreater(lot_high, lot_low)
 
 
 if __name__ == "__main__":
