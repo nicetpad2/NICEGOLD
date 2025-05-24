@@ -371,3 +371,10 @@
 - ปรับปรุง `OMSManager` ตรวจสอบความถี่การเทรดและปิด Recovery เมื่อทุนกลับคืน
 - เพิ่ม `qa_validate_backtest` สำหรับ QA Validation หลังแบ็กเทสต์
 - เพิ่ม unit tests ครอบคลุมฟีเจอร์ใหม่
+
+## [v1.9.56] — 2025-07-26
+### Added
+- `smart_entry_signal_multi_tf_ema_adx_optimized` ปรับตัวกรอง Momentum และ ATR เพื่อรักษาจำนวนออเดอร์
+- `on_price_update_patch_v2` เพิ่มการย้าย SL ที่รัดขึ้นหลัง TP1
+### Changed
+- `qa_validate_backtest` ตรวจสอบออเดอร์ขั้นต่ำ 279 และแจ้งเตือนเมื่อ Winrate ลดลง

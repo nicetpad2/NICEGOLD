@@ -484,6 +484,26 @@ class TestSpikeNewsGuard(unittest.TestCase):
         res = enterprise.smart_entry_signal_multi_tf_ema_adx(df)
         self.assertIn("buy", res["entry_signal"].values)
 
+    def test_smart_entry_signal_multi_tf_ema_adx_optimized_buy(self):
+        df = pd.DataFrame(
+            {
+                "timestamp": pd.date_range("2020-01-01", periods=60, freq="min"),
+                "ema_fast": [2] * 60,
+                "ema_slow": [1] * 60,
+                "m15_ema_fast": [2] * 60,
+                "m15_ema_slow": [1] * 60,
+                "adx": [25] * 60,
+                "rsi": [60] * 60,
+                "gain_z": [0.1] * 60,
+                "atr": [1.0] * 60,
+                "high": [1.1] * 60,
+                "low": [0.9] * 60,
+                "close": [1.0] * 60,
+            }
+        )
+        res = enterprise.smart_entry_signal_multi_tf_ema_adx_optimized(df)
+        self.assertIn("buy", res["entry_signal"].values)
+
     def test_calc_adaptive_lot(self):
         lot = enterprise.calc_adaptive_lot(1000, adx=30, recovery_mode=True, win_streak=2)
         self.assertGreaterEqual(lot, 0.01)
@@ -494,11 +514,24 @@ class TestSpikeNewsGuard(unittest.TestCase):
         enterprise.on_price_update_patch(o, 3.0, indicators={"ATR": 0.1})
         self.assertTrue(o.partial_taken)
 
+    def test_on_price_update_patch_v2_partial(self):
+        o = enterprise.Order(id=1, entry_price=1.0)
+        enterprise.on_order_execute(o)
+        enterprise.on_price_update_patch_v2(o, 3.0, indicators={"ATR": 0.1})
+        self.assertTrue(o.partial_taken)
+
     def test_qa_validate_backtest(self):
         trades = pd.DataFrame({"pnl": [10] * 20})
         equity = pd.DataFrame({"equity": [100 + i for i in range(21)], "dd": [0.0] * 21})
         res = enterprise.qa_validate_backtest(trades, equity)
         self.assertGreaterEqual(res["trades"], 20)
+
+    def test_qa_validate_backtest_winrate_warning(self):
+        trades = pd.DataFrame({"pnl": [1, -1]})
+        equity = pd.DataFrame({"equity": [100, 101, 100], "dd": [0.0, 0.0, 0.0]})
+        with self.assertLogs(enterprise.logger, level="WARNING") as cm:
+            enterprise.qa_validate_backtest(trades, equity, prev_winrate=1.0, min_trades=1, min_profit=0)
+        self.assertTrue(any("Winrate dropped" in m for m in cm.output))
 
 
 if __name__ == "__main__":

@@ -85,3 +85,8 @@
 - เพิ่ม `calc_adaptive_lot` และ `on_price_update_patch`
 - อัปเดต `OMSManager` ให้ตรวจสอบความถี่การเปิดออเดอร์และปิด Recovery เมื่อทุนกลับคืน
 - เพิ่ม `qa_validate_backtest` ตรวจสอบกำไร ≥ $15, ออเดอร์ ≥ 15 และ DD ไม่เกิน kill switch
+
+## v3.20 QA Patch
+- เพิ่มฟังก์ชัน `smart_entry_signal_multi_tf_ema_adx_optimized` ปรับตัวกรอง Momentum และ ATR
+- เพิ่ม `on_price_update_patch_v2` รัด Trailing SL หลัง TP1
+- ปรับ `qa_validate_backtest` ตรวจสอบออเดอร์ ≥ 279 และแจ้งเตือนเมื่อ Winrate ลดลง
