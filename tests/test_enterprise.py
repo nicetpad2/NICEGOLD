@@ -43,7 +43,7 @@ class TestEnterprise(unittest.TestCase):
                 "ema_fast": [2] * 61,
                 "ema_slow": [1] * 61,
                 "rsi": [60] * 61,
-                "atr": [3] * 61,
+                "atr": [4] * 61,
                 "adx": [20] * 61,
                 "close": [1] * 61,
                 "high": [1] * 61,
@@ -59,7 +59,7 @@ class TestEnterprise(unittest.TestCase):
                 "ema_fast": [2] * 61,
                 "ema_slow": [1] * 61,
                 "rsi": [60] * 61,
-                "atr": [3] * 61,
+                "atr": [4] * 61,
                 "adx": [20] * 61,
             }
         )
@@ -81,6 +81,11 @@ class TestEnterprise(unittest.TestCase):
         oms = enterprise.OMSManager(100, 0.5, 0.5)
         lot = oms.smart_lot(100, 3, 0.1)
         self.assertLessEqual(lot, enterprise.lot_cap_500)
+
+    def test_oms_smart_lot_cap_limit(self):
+        oms = enterprise.OMSManager(100, 0.5, 1.0)
+        lot = oms.smart_lot(100, 100, 0.1)
+        self.assertLessEqual(lot, 0.05)
 
     def test_run_backtest_outputs(self):
         df = pd.DataFrame(

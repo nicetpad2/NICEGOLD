@@ -66,3 +66,10 @@
 - ลด `risk_per_trade` และขยาย `sl_mult`/`min_sl_dist`
 - กรอง ATR หากต่ำกว่า `spread x2` ไม่เปิดสถานะ
 - เพิ่ม debug log รายไม้และ fail-safe หยุดแบ็กเทสต์เมื่อขาดทุน 20% ใน 3 ไม้แรก
+
+## v3.17 QA Patch
+- ลดค่าคอมมิชชันเหลือ 0.02 และ slippage 0.05
+- ขยาย TP multiplier (2.5/6.0) และ SL multiplier 2.0
+- ระยะ SL ขั้นต่ำ 5 จุด และกรอง ATR < spread x2.5
+- จำกัด lot ไม่เกิน 0.05 ต่อไม้
+- เพิ่ม debug log รายงาน ATR และค่าใช้จ่ายทุกไม้
