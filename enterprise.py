@@ -18,10 +18,10 @@ M15_PATH = "/content/drive/MyDrive/NICEGOLD/XAUUSD_M15.csv"
 # [Patch] Parameters – MM & Growth
 initial_capital = 100.0
 risk_per_trade = 0.01  # [Patch] ลดความเสี่ยงต่อไม้เหลือ 1%
-tp1_mult = 0.9  # [Patch] ปรับ TP1 แคบขึ้นเพื่อเก็บกำไรบางส่วนเร็วขึ้น
-tp2_mult = 3.0  # [Patch] TP2 ต่ำลง, เน้นยิงไวออกไว
-sl_mult = 1.5  # [Patch] ขยับ SL ให้กว้างขึ้น
-min_sl_dist = 3.0  # [Patch] ระยะ SL ขั้นต่ำกว้างขึ้น
+tp1_mult = 2.5  # [Patch] ขยาย TP1 multiplier
+tp2_mult = 6.0  # [Patch] ขยาย TP2 multiplier
+sl_mult = 2.0  # [Patch] ขยับ SL ให้กว้างขึ้น
+min_sl_dist = 5.0  # [Patch] ระยะ SL ขั้นต่ำกว้างขึ้น
 lot_max = 5.0  # [Patch] ปลดลิมิตให้สามารถปั้นพอร์ตโต
 lot_cap_500 = 0.5
 lot_cap_2000 = 1.0
@@ -44,8 +44,8 @@ trade_end_hour = 23
 # [Patch] Commission, Spread, Slippage สมจริง
 SPREAD_POINTS = 80
 SPREAD_VALUE = 0.8
-COMMISSION_PER_LOT = 0.10
-SLIPPAGE = 0.2
+COMMISSION_PER_LOT = 0.02
+SLIPPAGE = 0.05
 
 # --- Runtime utilities (merged) ---
 
@@ -777,6 +777,7 @@ class OMSManager:
             lot *= win_streak_boost
         lot_cap = min(lot_cap, lot_cap_max)
         lot = max(0.01, min(lot, lot_cap))
+        lot = max(0.01, min(lot, 0.05))  # [Patch] Limit max lot to 0.05
         return lot
 
     def check_max_orders(self, open_positions, max_orders=1):
@@ -808,7 +809,7 @@ def apply_order_costs(
     commission=COMMISSION_PER_LOT,
     slippage=SLIPPAGE,
 ):
-    """[Patch] Realistic spread/commission/slippage"""
+    """[Patch] Realistic spread/commission/slippage for profit possibility"""
     spread_half = spread / 2
     slip = np.random.uniform(-slippage, slippage)
     if direction == "buy":
@@ -859,8 +860,8 @@ def _execute_backtest(df):
                 continue
             if direction == "sell" and lower_wick_ratio > 0.80:
                 continue
-            if row["atr"] < SPREAD_VALUE * 2:
-                continue  # [Patch] ATR ต่ำกว่า spread x2 ไม่เทรด
+            if row["atr"] < SPREAD_VALUE * 2.5:
+                continue  # [Patch] ATR ต่ำกว่า spread x2.5 ไม่เทรด
             atr = max(row["atr"], min_sl_dist)
             entry = row["close"]
             sl = entry - atr * sl_mult if direction == "buy" else entry + atr * sl_mult
