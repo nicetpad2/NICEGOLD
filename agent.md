@@ -111,3 +111,12 @@
 - เพิ่มตรวจ signal_score และเทรนด์ M15 ใน generate_signal
 - calculate_position_size ปรับความเสี่ยงตาม ADX และจำกัด lot ตาม equity
 
+## v3.26 QA Patch
+- ลด risk_per_trade เป็น 2%
+- เพิ่ม kill_switch_dd เป็น 50%
+- adx_thresh ปรับเป็น 15
+- force_entry_gap เป็น 300
+- ยกเลิกลิมิต lot สูงสุด 0.05
+- apply_session_bias ไม่กรอง session ใด ๆ
+- `_execute_backtest` ข้ามสัญญาณที่ divergence ตรงข้าม
+

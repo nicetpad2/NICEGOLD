@@ -36,7 +36,7 @@ def log_ram_usage(note=""):
 
 # [Patch] Parameters – MM & Growth
 initial_capital = 100.0
-risk_per_trade = 0.03  # [Patch] increased to 3% per trade to accelerate portfolio growth
+risk_per_trade = 0.02  # [Patch] Increase risk per trade to 2%
 tp1_mult = 3.0   # [Patch] larger TP1 to capture medium moves
 tp2_mult = 6.0   # [Patch] larger TP2 to capture big trends
 sl_mult = 1.0   # [Patch] tighter SL in strong trends
@@ -51,12 +51,12 @@ oms_recovery_loss = 2   # [Patch] trigger recovery mode after 2 consecutive loss
 win_streak_boost = 1.3  # [Patch] Boost สูงขึ้น
 recovery_multiplier = 3.0  # [Patch] Aggressive recovery
 trailing_atr_mult = 1.1
-kill_switch_dd = 0.35  # [Patch] Kill switch หาก DD > 35%
+kill_switch_dd = 0.5  # [Patch] Allow higher drawdown before kill switch (50%)
 trend_lookback = 25  # [Patch] เร็วขึ้น (trend สั้นลง)
 adx_period = 14
-adx_thresh = 12  # [Patch] ADX below this = low momentum
+adx_thresh = 15  # [Patch] Slightly increase ADX threshold for stronger trend filter
 adx_strong = 23  # [Patch] ADX above this = strong trend
-force_entry_gap = 200   # [Patch] reduce gap to increase trade frequency
+force_entry_gap = 300  # [Patch] Force entry หากไม่มี order เกิน 300 แท่ง
 trade_start_hour = 0   # [Patch] allow trading from midnight
 trade_end_hour = 24  # [Patch] until end of day (24h trading)
 
@@ -801,9 +801,10 @@ def apply_session_bias(df, entry_col="entry_signal", session_col="session"):
     """[Patch] Filter or adjust entry signal based on session bias."""
     logger.info("[Patch] Apply session bias (entry filter/boost)")
     df = df.copy()
-    block_sessions = ["Other"]
-    mask_block = df[session_col].isin(block_sessions)
-    df.loc[mask_block, entry_col] = None
+    block_sessions = []  # [Patch] Allow trading in all sessions (no session blocked)
+    if block_sessions:
+        mask_block = df[session_col].isin(block_sessions)
+        df.loc[mask_block, entry_col] = None
     return df
 
 
@@ -1461,7 +1462,7 @@ class OMSManager:
             lot *= win_streak_boost
         lot_cap = min(lot_cap, lot_cap_max)
         lot = max(0.01, min(lot, lot_cap))
-        lot = max(0.01, min(lot, 0.05))  # [Patch] Limit max lot to 0.05
+        # [Patch] Remove lot cap 0.05 limit to allow scaling up
         return lot
 
     def check_max_orders(self, open_positions, max_orders=1):
@@ -1564,6 +1565,10 @@ def _execute_backtest(df):
                 if not allow:
                     logger.debug("[Patch] Relax entry reject at %s", row["timestamp"])
                     continue
+            if (direction == "buy" and row.get("divergence") == "bearish") or (
+                direction == "sell" and row.get("divergence") == "bullish"):
+                logger.info("[Patch] Skip entry due to opposite divergence signal")
+                continue
             price_range = max(row["high"] - row["low"], 1e-6)
             upper_wick_ratio = (row["high"] - row["close"]) / price_range
             lower_wick_ratio = (row["close"] - row["low"]) / price_range

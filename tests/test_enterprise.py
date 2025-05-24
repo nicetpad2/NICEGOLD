@@ -104,7 +104,7 @@ class TestEnterprise(unittest.TestCase):
     def test_oms_smart_lot_cap_limit(self):
         oms = enterprise.OMSManager(100, 0.5, 1.0)
         lot = oms.smart_lot(100, 100, 0.1)
-        self.assertLessEqual(lot, 0.05)
+        self.assertLessEqual(lot, enterprise.lot_cap_500)
 
     def test_run_backtest_outputs(self):
         df = pd.DataFrame(
@@ -317,7 +317,7 @@ class TestDynamicTP2Session(unittest.TestCase):
         df = enterprise.tag_session(df)
         self.assertEqual(df["session"].tolist(), ["Asia", "London", "NY", "Other"])
         df = enterprise.apply_session_bias(df)
-        self.assertIsNone(df["entry_signal"].iloc[3])
+        self.assertEqual(df["entry_signal"].tolist(), ["buy", "buy", "buy", "buy"])
 
     def test_execute_backtest_dynamic_tp2(self):
         enterprise.TRADE_DIR = "."
@@ -713,6 +713,30 @@ class TestSpikeNewsGuard(unittest.TestCase):
             if f.startswith("trade_log_") or f.startswith("equity_curve_"):
                 os.remove(f)
         self.assertFalse(trades2.empty)
+
+    def test_skip_entry_opposite_divergence(self):
+        enterprise.TRADE_DIR = "."
+        df = pd.DataFrame(
+            {
+                "timestamp": pd.date_range("2020-01-01", periods=1, freq="min"),
+                "open": [1.0],
+                "high": [1.1],
+                "low": [0.9],
+                "close": [1.0],
+                "ema_fast": [2],
+                "ema_slow": [1],
+                "rsi": [55],
+                "adx": [20],
+                "atr": [0.2],
+                "entry_signal": ["buy"],
+                "divergence": ["bearish"],
+            }
+        )
+        trades = enterprise._execute_backtest(df)
+        for f in os.listdir("."):
+            if f.startswith("trade_log_") or f.startswith("equity_curve_"):
+                os.remove(f)
+        self.assertTrue(trades.empty)
 
     def test_walkforward_run_returns_list(self):
         df = pd.DataFrame(
