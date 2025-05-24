@@ -806,6 +806,20 @@ class TestSpikeNewsGuard(unittest.TestCase):
                 os.remove(f)
         assert "MicroSL" in trades["exit"].values
 
+    def test_calculate_auto_lot_basic(self):
+        lot = enterprise.calculate_auto_lot(1000, 0.02, 10, 5)
+        self.assertEqual(lot, 2.0)
+
+    def test_equity_based_tp_sl_levels(self):
+        tp, sl = enterprise.equity_based_tp_sl(400)
+        self.assertEqual((tp, sl), (1.5, 0.8))
+        tp2, sl2 = enterprise.equity_based_tp_sl(2000)
+        self.assertEqual((tp2, sl2), (3.5, 1.2))
+
+    def test_config_flags_true(self):
+        self.assertTrue(enterprise.enable_auto_lot_scaling)
+        self.assertTrue(enterprise.enable_equity_tp_sl_adjuster)
+
 
 
 if __name__ == "__main__":
