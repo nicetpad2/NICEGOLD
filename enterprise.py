@@ -206,6 +206,36 @@ def on_price_update(order, price, indicators=None):
             )
 
 
+def on_price_update_patch(order, price, indicators=None):
+    """[Patch] Partial TP + Move SL to BE, trailing SL after TP1, for QA backtest"""
+    if (
+        order.partial_tp_level
+        and price >= order.partial_tp_level
+        and not order.partial_taken
+    ):
+        close_position(order, portion=0.5)
+        order.partial_taken = True
+        logger.info(
+            "[Patch] Partial TP hit for order %s: closed 50%% at price %.2f",
+            order.id,
+            price,
+        )
+        if order.move_sl_to_be_trigger:
+            new_sl = order.entry_price
+            set_stop_loss(order, new_sl)
+            logger.info("[Patch] Moved SL to BE for order %s at %.2f", order.id, new_sl)
+    if order.trail_stop and price > order.entry_price and indicators:
+        trail_distance = trailing_atr_multiplier * indicators.get("ATR", 0)
+        new_sl = max(order.stop_loss, price - trail_distance)
+        if new_sl > order.stop_loss:
+            set_stop_loss(order, new_sl)
+            logger.debug(
+                "[Patch] Trailing SL updated for order %s to %.2f",
+                order.id,
+                new_sl,
+            )
+
+
 def open_position(lot_size, direction):
     logger.info("[Patch] Opening position %s %.2f lots", direction, lot_size)
 
@@ -723,6 +753,136 @@ def smart_entry_signal_multi_tf(df):
     return df
 
 
+def smart_entry_signal_multi_tf_ema_adx(df, min_entry_gap_minutes=60):
+    """[Patch] กลยุทธ์ Trend + EMA + ADX + Multi-TF + OMS/QA"""
+    import pandas as pd
+    import numpy as np
+
+    logger.info(
+        "[Patch] Entry signal: Multi-TF EMA+ADX+RSI+Wick Filter+OMS"
+    )
+    df = df.copy()
+    df["entry_signal"] = None
+    last_entry_time = None
+    min_gap = pd.Timedelta(minutes=min_entry_gap_minutes)
+
+    for i in range(max(50, df.index.min()), len(df)):
+        ema_fast = df["ema_fast"].iloc[i]
+        ema_slow = df["ema_slow"].iloc[i]
+        m15_ema_fast = (
+            df["m15_ema_fast"].iloc[i] if "m15_ema_fast" in df.columns else np.nan
+        )
+        m15_ema_slow = (
+            df["m15_ema_slow"].iloc[i] if "m15_ema_slow" in df.columns else np.nan
+        )
+        adx = df["adx"].iloc[i]
+        rsi = df["rsi"].iloc[i]
+        timestamp = pd.to_datetime(df["timestamp"].iloc[i]) if "timestamp" in df.columns else pd.Timestamp.now()
+
+        price_range = max(df["high"].iloc[i] - df["low"].iloc[i], 1e-8)
+        upper_wick = (df["high"].iloc[i] - df["close"].iloc[i]) / price_range
+        lower_wick = (df["close"].iloc[i] - df["low"].iloc[i]) / price_range
+        relaxed_wick = upper_wick < 0.80 and lower_wick < 0.80
+
+        if last_entry_time is not None and timestamp - last_entry_time < min_gap:
+            continue
+
+        if (
+            ema_fast > ema_slow
+            and m15_ema_fast > m15_ema_slow
+            and adx > 12
+            and rsi > 51
+            and relaxed_wick
+        ):
+            df.at[df.index[i], "entry_signal"] = "buy"
+            last_entry_time = timestamp
+            logger.info(
+                f"[Patch] Entry: BUY at {timestamp} (ADX={adx:.2f}, RSI={rsi:.2f})"
+            )
+        elif (
+            ema_fast < ema_slow
+            and m15_ema_fast < m15_ema_slow
+            and adx > 12
+            and rsi < 49
+            and relaxed_wick
+        ):
+            df.at[df.index[i], "entry_signal"] = "sell"
+            last_entry_time = timestamp
+            logger.info(
+                f"[Patch] Entry: SELL at {timestamp} (ADX={adx:.2f}, RSI={rsi:.2f})"
+            )
+
+    force_entry_gap = 300
+    last_entry = 0
+    for i in range(len(df)):
+        if pd.notna(df["entry_signal"].iloc[i]):
+            last_entry = i
+        elif i - last_entry > force_entry_gap:
+            ema_fast = df["ema_fast"].iloc[i]
+            ema_slow = df["ema_slow"].iloc[i]
+            m15_ema_fast = (
+                df["m15_ema_fast"].iloc[i]
+                if "m15_ema_fast" in df.columns
+                else np.nan
+            )
+            m15_ema_slow = (
+                df["m15_ema_slow"].iloc[i]
+                if "m15_ema_slow" in df.columns
+                else np.nan
+            )
+            adx = df["adx"].iloc[i]
+            rsi = df["rsi"].iloc[i]
+            relaxed_wick = True
+            if {"high", "low", "close"}.issubset(df.columns):
+                price_range = max(df["high"].iloc[i] - df["low"].iloc[i], 1e-8)
+                upper_wick = (df["high"].iloc[i] - df["close"].iloc[i]) / price_range
+                lower_wick = (df["close"].iloc[i] - df["low"].iloc[i]) / price_range
+                relaxed_wick = upper_wick < 0.80 and lower_wick < 0.80
+            if adx > 12 and relaxed_wick:
+                if ema_fast > ema_slow and m15_ema_fast > m15_ema_slow and rsi > 51:
+                    df.at[df.index[i], "entry_signal"] = "buy"
+                    logger.info(
+                        f"[Patch] Force Entry: BUY at {df['timestamp'].iloc[i]}"
+                    )
+                    last_entry = i
+                elif (
+                    ema_fast < ema_slow
+                    and m15_ema_fast < m15_ema_slow
+                    and rsi < 49
+                ):
+                    df.at[df.index[i], "entry_signal"] = "sell"
+                    logger.info(
+                        f"[Patch] Force Entry: SELL at {df['timestamp'].iloc[i]}"
+                    )
+                    last_entry = i
+
+    logger.info(
+        f"[Patch] Multi-TF Trend Entry: buy={(df['entry_signal']=='buy').sum()}, sell={(df['entry_signal']=='sell').sum()}"
+    )
+    return df
+
+
+def calc_adaptive_lot(equity, adx, recovery_mode=False, win_streak=0):
+    """[Patch] Adaptive lot sizing based on portfolio growth + ADX + Recovery/WinStreak"""
+    base_risk = 0.01
+    if adx > 23:
+        base_risk *= 2.0
+    if recovery_mode:
+        base_risk *= 2.0
+    if win_streak >= 2:
+        base_risk *= 1.5
+    lot = max(0.01, min(5.0, (equity * base_risk) / 10))
+    logger.info(
+        "[Patch] Lot calc: eq=%.2f, adx=%.2f, recovery=%s, streak=%d => lot=%.2f",
+        equity,
+        adx,
+        recovery_mode,
+        win_streak,
+        lot,
+    )
+    return lot
+
+
 def smart_entry_signal_goldai2025_style(df):
     """Entry signal logic for GoldAI2025."""
     logger.info("[Patch] Entry signal GoldAI2025 style")
@@ -761,6 +921,7 @@ class OMSManager:
         self.win_streak = 0
         self.loss_streak = 0
         self.recovery_mode = False
+        self.last_order_time = None
 
     def update(self, capital, trade_win):
         self.capital = capital
@@ -788,6 +949,18 @@ class OMSManager:
                 "[Patch] Recovery mode deactivated after win streak of %d",
                 self.win_streak,
             )
+        if self.recovery_mode and capital >= self.peak:
+            self.recovery_mode = False
+            logger.info("[Patch] Recovery mode deactivated after capital recovery")
+
+    def can_place_order(self, timestamp, min_gap_minutes=60):
+        if self.last_order_time is None:
+            return True
+        gap = pd.Timedelta(minutes=min_gap_minutes)
+        return pd.to_datetime(timestamp) - self.last_order_time >= gap
+
+    def register_order(self, timestamp):
+        self.last_order_time = pd.to_datetime(timestamp)
 
     def smart_lot(self, capital, risk_amount, entry_sl_dist):
         lot_cap = self.lot_max
@@ -1191,6 +1364,8 @@ def _execute_backtest(df):
     logger.info("[Patch] Saved trade log: %s", trade_log_path)
     logger.info("[Patch] Saved equity curve: %s", equity_curve_path)
 
+    qa_validate_backtest(df_trades, df_equity)
+
     # Summary
     print("Final Equity:", round(capital, 2))
     print("Total Trades:", len(df_trades))
@@ -1238,6 +1413,28 @@ def _execute_backtest(df):
     except Exception as e:
         logger.warning("[Patch] Matplotlib not available for equity plot: %s", e)
     return df_trades
+
+
+def qa_validate_backtest(trades_df, equity_df, min_trades=15, min_profit=15):
+    """[Patch] QA validation after backtest"""
+    orders = len(trades_df)
+    profit = (
+        equity_df["equity"].iloc[-1] - initial_capital if not equity_df.empty else 0
+    )
+    dd = equity_df["dd"].max() if not equity_df.empty else 0
+    if orders < min_trades:
+        logger.warning("[Patch] QA fail: trades < %d", min_trades)
+    if profit < min_profit:
+        logger.warning("[Patch] QA fail: profit %.2f < %.2f", profit, min_profit)
+    if dd > kill_switch_dd:
+        logger.warning("[Patch] QA fail: DD %.2f%% > kill switch", dd * 100)
+    if orders >= min_trades and profit >= min_profit and dd <= kill_switch_dd:
+        logger.info("[Patch] QA check passed")
+    return {
+        "trades": orders,
+        "profit": profit,
+        "dd": dd,
+    }
 
 
 def run_backtest(path=None):
