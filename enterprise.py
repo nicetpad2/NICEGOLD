@@ -6,8 +6,6 @@ from datetime import datetime, timedelta
 from dataclasses import dataclass
 from typing import Optional
 import logging
-import json
-from itertools import product
 try:
     import psutil  # สำหรับเช็ค RAM
 except Exception:  # pragma: no cover - optional dependency
@@ -24,9 +22,6 @@ M15_PATH = "/content/drive/MyDrive/NICEGOLD/XAUUSD_M15.csv"
 # [Patch] Enable full RAM mode
 MAX_RAM_MODE = True  # เปิดโหมดใช้แรมหนัก
 
-# [Patch QA] Store previous entry count for QA guard
-_PREV_ENTRY_COUNT = None
-
 # [Patch] Log RAM usage helper
 def log_ram_usage(note=""):
     if psutil is None:
@@ -38,41 +33,29 @@ def log_ram_usage(note=""):
 
 # [Patch] Parameters – MM & Growth
 initial_capital = 100.0
-risk_per_trade = 0.02  # [Patch] Increase risk per trade to 2%
-tp1_mult = 3.0   # [Patch] larger TP1 to capture medium moves
-tp2_mult = 6.0   # [Patch] larger TP2 to capture big trends
-sl_mult = 1.0   # [Patch] tighter SL in strong trends
+risk_per_trade = 0.01  # [Patch] ลดความเสี่ยงต่อไม้เหลือ 1%
+tp1_mult = 2.0  # [Patch] ปรับ TP1 multiplier ตามความเป็นจริง
+tp2_mult = 4.0  # [Patch] ปรับ TP2 multiplier ตามความเป็นจริง
+sl_mult = 1.2  # [Patch] ลด SL multiplier ให้ใกล้เคียงตลาดจริง
 min_sl_dist = 4.0  # [Patch] ระยะ SL ขั้นต่ำสมจริง
-lot_max = 10.0  # [Patch] raise max lot cap to support equity scaling
+lot_max = 5.0  # [Patch] ปลดลิมิตให้สามารถปั้นพอร์ตโต
 lot_cap_500 = 0.5
 lot_cap_2000 = 1.0
 lot_cap_10000 = 2.5
 lot_cap_max = 5.0
 cooldown_bars = 0  # [Patch] ไม่มี cooldown
-oms_recovery_loss = 2   # [Patch] trigger recovery mode after 2 consecutive losses
+oms_recovery_loss = 3  # [Patch] Recovery เร็วขึ้น (จาก 4 → 3)
 win_streak_boost = 1.3  # [Patch] Boost สูงขึ้น
 recovery_multiplier = 3.0  # [Patch] Aggressive recovery
 trailing_atr_mult = 1.1
-kill_switch_dd = 0.5  # [Patch] Allow higher drawdown before kill switch (50%)
+kill_switch_dd = 0.35  # [Patch] Kill switch หาก DD > 35%
 trend_lookback = 25  # [Patch] เร็วขึ้น (trend สั้นลง)
 adx_period = 14
-adx_thresh = 15  # [Patch] Slightly increase ADX threshold for stronger trend filter
-adx_strong = 23  # [Patch] ADX above this = strong trend
-# CONFIG: ค่าตั้งต้นสำหรับ IB & Profit Mode
-strategy_mode = "ib_commission_mode"  # [Patch] เปิดโหมดเร่งออเดอร์เพื่อคอมมิชชั่น IB
-force_entry_gap = 100                 # [Patch] Force entry ทุก 100 แท่งถ้าไม่มีออเดอร์
-partial_close_pct = 0.6               # [Patch] Partial TP ทุกไม้ 60%
-lot_min = 0.01                        # [Patch] ไม้เล็กสุด ยิงให้ได้ออเดอร์มากสุด
-min_tp1_rr = 0.8                      # [Patch] TP1 RR ต่ำ เพื่อปิดกำไรไว สะสมคอม
-max_reentry = 2                       # [Patch] ยิง Re-entry ได้ 2 ไม้ ถ้า SL แต่ยังตามเทรนด์
-enable_micro_sl_exit = True          # [Patch] ออกจากไม้ไวถ้าเบี่ยงทิศ
-trail_stop_mult = 0.4                # [Patch] SL เคลื่อนตามราคาหลัง TP1
-trade_start_hour = 0   # [Patch] allow trading from midnight
-trade_end_hour = 24  # [Patch] until end of day (24h trading)
-
-# CONFIG: เพิ่มค่าเปิดใช้งาน
-enable_auto_lot_scaling = True         # [ALS] เปิดระบบขนาดล็อตอัตโนมัติ
-enable_equity_tp_sl_adjuster = True    # [ETA] ปรับ TP/SL อิงทุน
+adx_thresh = 12  # [Patch] Relax adx guard
+adx_strong = 23  # [Patch] ปรับ adx strong
+force_entry_gap = 300  # [Patch] Force entry หากไม่มี order เกิน 300 แท่ง
+trade_start_hour = 8
+trade_end_hour = 23
 
 # [Patch] Commission, Spread, Slippage สมจริง
 SPREAD_POINTS = 80
@@ -95,13 +78,6 @@ def is_in_session(current_time, sessions):
 
 def breakout_condition(price_data):
     return price_data.get("breakout", False)
-
-
-def trend_confirmed(indicators):
-    """[Patch] Confirm trend using EMA and MACD direction"""
-    ema_fast = indicators.get("ema_fast") or indicators.get("EMA50")
-    ema_slow = indicators.get("ema_slow") or indicators.get("EMA200")
-    return ema_fast is not None and ema_slow is not None and ema_fast > ema_slow
 
 
 def get_pip_value(symbol="XAUUSD", lot=1):
@@ -137,40 +113,7 @@ base_stop_distance = 1.0
 base_tp_distance = 2.0
 partial_tp_distance = 1.5
 break_even_distance = 1.0
-trailing_atr_multiplier = trail_stop_mult
-
-def calculate_auto_lot(equity, risk_pct, sl_distance, lot_max):
-    """[ALS] คำนวณล็อตอัตโนมัติตามทุนและระยะ SL"""
-    risk_amount = equity * risk_pct
-    lot = risk_amount / max(sl_distance, 1e-6)
-    lot = round(min(max(lot, 0.01), lot_max), 2)
-    logger.debug(
-        "[ALS] equity %.2f risk_pct %.2f sl_distance %.2f -> lot %.2f",
-        equity,
-        risk_pct,
-        sl_distance,
-        lot,
-    )
-    return lot
-
-
-def equity_based_tp_sl(equity):
-    """[ETA] คืนค่า TP1/SL multiplier ตามระดับทุน"""
-    if equity < 500:
-        tp, sl = 1.5, 0.8
-    elif equity < 1000:
-        tp, sl = 2.5, 1.0
-    elif equity < 5000:
-        tp, sl = 3.5, 1.2
-    else:
-        tp, sl = 4.5, 1.5
-    logger.debug(
-        "[ETA] equity %.2f -> TP1 %.2f SL %.2f",
-        equity,
-        tp,
-        sl,
-    )
-    return tp, sl
+trailing_atr_multiplier = 1.0
 
 
 def generate_signal(
@@ -185,18 +128,6 @@ def generate_signal(
     if force_entry:
         logger.debug("Force entry active")
         return True
-    # [Patch] require minimum aggregated signal score
-    if indicators.get("signal_score", 0) < 2:
-        logger.debug("[Patch] signal_score < 2, skip entry")
-        return False
-    # [Patch] multi-timeframe M15 trend confirmation
-    if "m15_ema_fast" in indicators and "m15_ema_slow" in indicators:
-        if intended_side == "BUY" and indicators["m15_ema_fast"] < indicators["m15_ema_slow"]:
-            logger.debug("[Patch] M15 trend not bullish, skip BUY")
-            return False
-        if intended_side == "SELL" and indicators["m15_ema_fast"] > indicators["m15_ema_slow"]:
-            logger.debug("[Patch] M15 trend not bearish, skip SELL")
-            return False
     session_ok = is_in_session(current_time, allowed_sessions)
     trend_ok = (
         indicators["EMA50"] > indicators["EMA200"]
@@ -217,26 +148,11 @@ def generate_signal(
     return False
 
 
-def calculate_position_size(equity, entry_price, stop_price, risk_pct, indicators):
-    # [Patch] dynamic risk scaling by ADX momentum
-    adx = indicators.get("ADX", 0)
-    if adx > adx_strong:
-        risk_pct *= 1.5
-        logger.debug("[Patch] ADX>strong, risk_pct boosted to %.2f%%", risk_pct * 100)
-    elif adx < adx_thresh:
-        risk_pct *= 0.75
-        logger.debug("[Patch] ADX<thresh, risk_pct reduced to %.2f%%", risk_pct * 100)
+def calculate_position_size(equity, entry_price, stop_price, risk_pct):
     risk_amount = equity * risk_pct
     pip_value = get_pip_value(symbol="XAUUSD", lot=1)
     stop_pips = abs(entry_price - stop_price) / pip_value
     lot = risk_amount / (stop_pips * pip_value)
-    # [Patch] dynamic lot cap by equity bands
-    lot_cap = lot_max / 4
-    if equity > 1_000:
-        lot_cap = lot_max / 2
-    if equity > 5_000:
-        lot_cap = lot_max
-    lot = min(lot, lot_cap)
     logger.debug(
         "[Patch] Calculated position size = %.2f lots for risk %.1f%% and stop %.1f pips",
         lot,
@@ -283,10 +199,10 @@ def on_price_update(order, price, indicators=None):
         and price >= order.partial_tp_level
         and not order.partial_taken
     ):
-        close_position(order, portion=partial_close_pct)
+        close_position(order, portion=0.5)
         order.partial_taken = True
         logger.info(
-            f"[Patch] Partial TP hit for order %s: closed {partial_close_pct*100:.0f}%% at price %.2f",
+            "[Patch] Partial TP hit for order %s: closed 50%% at price %.2f",
             order.id,
             price,
         )
@@ -313,10 +229,10 @@ def on_price_update_patch(order, price, indicators=None):
         and price >= order.partial_tp_level
         and not order.partial_taken
     ):
-        close_position(order, portion=partial_close_pct)
+        close_position(order, portion=0.5)
         order.partial_taken = True
         logger.info(
-            f"[Patch] Partial TP hit for order %s: closed {partial_close_pct*100:.0f}%% at price %.2f",
+            "[Patch] Partial TP hit for order %s: closed 50%% at price %.2f",
             order.id,
             price,
         )
@@ -343,10 +259,10 @@ def on_price_update_patch_v2(order, price, indicators=None):
         and price >= order.partial_tp_level
         and not order.partial_taken
     ):
-        close_position(order, portion=partial_close_pct)
+        close_position(order, portion=0.5)
         order.partial_taken = True
         logger.info(
-            f"[Patch] Partial TP hit for order %s: closed {partial_close_pct*100:.0f}%% at price %.2f",
+            "[Patch] Partial TP hit for order %s: closed 50%% at price %.2f",
             order.id,
             price,
         )
@@ -855,10 +771,9 @@ def apply_session_bias(df, entry_col="entry_signal", session_col="session"):
     """[Patch] Filter or adjust entry signal based on session bias."""
     logger.info("[Patch] Apply session bias (entry filter/boost)")
     df = df.copy()
-    block_sessions = []  # [Patch] Allow trading in all sessions (no session blocked)
-    if block_sessions:
-        mask_block = df[session_col].isin(block_sessions)
-        df.loc[mask_block, entry_col] = None
+    block_sessions = ["Other"]
+    mask_block = df[session_col].isin(block_sessions)
+    df.loc[mask_block, entry_col] = None
     return df
 
 
@@ -937,38 +852,6 @@ def multi_session_trend_scalping(df):
             df.at[df.index[i], "entry_signal"] = "sell"
     logger.info(
         "[Patch] Entry signal counts (Enterprise strategy): buy=%d, sell=%d",
-        (df["entry_signal"] == "buy").sum(),
-        (df["entry_signal"] == "sell").sum(),
-    )
-    return df
-
-
-def entry_signal_trend_scalp(df, force_gap=200):
-    """Trend scalping entry signal with periodic force entry."""
-    logger.info("[Patch] Trend Scalping + Force Entry")
-    df = df.copy()
-    df["entry_signal"] = None
-    atr_threshold = df["atr"].quantile(0.6)
-    trend_buy = (
-        (df["ema_fast"] > df["ema_slow"]) & (df["rsi"] > 51) & (df["adx"] > 12) & (df["atr"] > atr_threshold)
-    )
-    trend_sell = (
-        (df["ema_fast"] < df["ema_slow"]) & (df["rsi"] < 49) & (df["adx"] > 12) & (df["atr"] > atr_threshold)
-    )
-    df.loc[trend_buy, "entry_signal"] = "buy"
-    df.loc[trend_sell, "entry_signal"] = "sell"
-    last_entry = 0
-    for i in range(len(df)):
-        if pd.notna(df["entry_signal"].iloc[i]):
-            last_entry = i
-        elif i - last_entry > force_gap:
-            if df["ema_fast"].iloc[i] > df["ema_slow"].iloc[i]:
-                df.at[i, "entry_signal"] = "buy"
-            else:
-                df.at[i, "entry_signal"] = "sell"
-            last_entry = i
-    logger.info(
-        "[Patch] Trend Scalping Entry: buy=%d, sell=%d",
         (df["entry_signal"] == "buy").sum(),
         (df["entry_signal"] == "sell").sum(),
     )
@@ -1155,6 +1038,7 @@ def smart_entry_signal_multi_tf_ema_adx(df, min_entry_gap_minutes=60):
                 f"[Patch] Entry: SELL at {timestamp} (ADX={adx:.2f}, RSI={rsi:.2f})"
             )
 
+    force_entry_gap = 300
     last_entry = 0
     for i in range(len(df)):
         if pd.notna(df["entry_signal"].iloc[i]):
@@ -1269,6 +1153,7 @@ def smart_entry_signal_multi_tf_ema_adx_optimized(df, min_entry_gap_minutes=60):
                 f"[Patch] Entry: SELL at {timestamp} (ADX={adx:.2f}, RSI={rsi:.2f}, GZ={gain_z:.2f}, Div={divergence})"
             )
 
+    force_entry_gap = 300
     last_entry = 0
     for i in range(len(df)):
         if pd.notna(df["entry_signal"].iloc[i]):
@@ -1323,35 +1208,7 @@ def calc_adaptive_lot(equity, adx, recovery_mode=False, win_streak=0):
     )
     return lot
 
-
-# [Patch] Aggressive lot sizing (no strict cap)
-def calc_aggressive_lot(capital, entry_sl_dist):
-    base_risk = risk_per_trade
-    lot = (capital * base_risk) / max(entry_sl_dist, min_sl_dist)
-    lot = max(0.01, min(lot, lot_max))
-    logger.info(
-        "[Patch] Aggressive lot sizing: cap=%.2f, sl_dist=%.2f, lot=%.3f",
-        capital,
-        entry_sl_dist,
-        lot,
-    )
-    return lot
-
-
-def run_backtest_aggressive(path=None):
-    """Run aggressive entry backtest (machine gun mode)."""
-    logger.info("[Patch] Running backtest: Aggressive Entry")
-    if path is None:
-        path = M1_PATH
-    df = load_data(path)
-    df = data_quality_check(df)
-    df = calc_indicators(df)
-    df = calc_dynamic_tp2(df)
-    df = entry_signal_always_on(df, mode="alternate")
-    trades = _execute_backtest(df)
-    return trades
-
-def smart_entry_signal_enterprise_v1(df, force_entry_gap=force_entry_gap):
+def smart_entry_signal_enterprise_v1(df, force_entry_gap=300):
     """
     [Patch] Multi-confirm Entry: EMA, ADX, RSI, Divergence, Gain_Z, Wave_Phase
     - Force Entry มี filter (gain_z/divergence)
@@ -1364,17 +1221,14 @@ def smart_entry_signal_enterprise_v1(df, force_entry_gap=force_entry_gap):
     logger.info("[Patch] Running smart_entry_signal_enterprise_v1")
     df = df.copy()
     df["entry_signal"] = None
-    force_entry_gap = 50  # [Patch G] ลดช่องว่างในการยิงไม้
-    logger.debug("[Patch G] force_entry_gap=%d", force_entry_gap)
-    # [Patch G] Relax gain_z threshold + allow wave=mid if supported
     entry_long = (
         (df["ema_fast"] > df["ema_slow"])
         & (df["adx"] > 12)
         & (df["rsi"] > 51)
         & (
             (df["divergence"] == "bullish") |
-            (df["gain_z"] > 0.2) |
-            ((df["wave_phase"] == "trough") | ((df["wave_phase"] == "mid") & (df["gain_z"] > 0.5)))
+            (df["gain_z"] > 0.5) |
+            (df["wave_phase"].isin(["trough"]))
         )
     )
     entry_short = (
@@ -1383,8 +1237,8 @@ def smart_entry_signal_enterprise_v1(df, force_entry_gap=force_entry_gap):
         & (df["rsi"] < 49)
         & (
             (df["divergence"] == "bearish") |
-            (df["gain_z"] < -0.2) |
-            ((df["wave_phase"] == "peak") | ((df["wave_phase"] == "mid") & (df["gain_z"] < -0.5)))
+            (df["gain_z"] < -0.5) |
+            (df["wave_phase"].isin(["peak"]))
         )
     )
     df.loc[entry_long, "entry_signal"] = "buy"
@@ -1414,9 +1268,6 @@ def smart_entry_signal_enterprise_v1(df, force_entry_gap=force_entry_gap):
         (df["entry_signal"] == "buy").sum(),
         (df["entry_signal"] == "sell").sum(),
     )
-    order_count = df["entry_signal"].notna().sum()
-    # [Patch G] ปิด QA Entry Drop Guard ชั่วคราว
-    globals()["_PREV_ENTRY_COUNT"] = order_count
     return df
 
 def smart_entry_signal_goldai2025_style(df):
@@ -1514,8 +1365,8 @@ class OMSManager:
         if self.win_streak >= 2:
             lot *= win_streak_boost
         lot_cap = min(lot_cap, lot_cap_max)
-        lot = max(lot_min, min(lot, lot_cap))
-        # [Patch] Remove lot cap 0.05 limit to allow scaling up
+        lot = max(0.01, min(lot, lot_cap))
+        lot = max(0.01, min(lot, 0.05))  # [Patch] Limit max lot to 0.05
         return lot
 
     def check_max_orders(self, open_positions, max_orders=1):
@@ -1583,55 +1434,23 @@ def _execute_backtest(df):
             break
 
         # Entry
-        signal_dir = row["entry_signal"] if row["entry_signal"] in ["buy", "sell"] else None
-        if (
-            signal_dir is None
-            and position is None
-            and (i - last_entry_idx) >= force_entry_gap
-            and trend_confirmed(row)
-        ):
-            signal_dir = "buy" if row.get("ema_fast", 0) > row.get("ema_slow", 0) else "sell"
-            logger.info("[Patch] Force Entry Triggered @ bar %d", i)
-
         if (
             position is None
-            and signal_dir in ["buy", "sell"]
+            and row["entry_signal"] in ["buy", "sell"]
             and (i - last_entry_idx) >= cooldown_bars
             and oms.check_max_orders([p for p in [position] if p])
         ):
-            direction = signal_dir
+            direction = row["entry_signal"]
             # [Patch] Recovery Mode Strict Confirm
-            strict_mode = oms.recovery_mode and oms.loss_streak >= 4
-            if strict_mode:
-                allow = (
-                    row.get("adx", 0) > 20
-                    and (
-                        (direction == "buy" and row.get("divergence") == "bullish")
-                        or (direction == "sell" and row.get("divergence") == "bearish")
-                    )
-                    and (
-                        (direction == "buy" and row.get("gain_z", 0) > 0.7)
-                        or (direction == "sell" and row.get("gain_z", 0) < -0.7)
-                    )
-                )
-                if not allow:
-                    logger.debug("[Patch] Strict entry reject at %s", row["timestamp"])
+            if oms.recovery_mode:
+                valid = False
+                if direction == "buy":
+                    valid = (row.get("divergence") == "bullish") or (row.get("gain_z", 0) > 0)
+                else:
+                    valid = (row.get("divergence") == "bearish") or (row.get("gain_z", 0) < 0)
+                if not valid:
+                    logger.info("[Patch QA] Recovery confirm fail at %s, skip entry", row["timestamp"])
                     continue
-            elif oms.recovery_mode:
-                allow = (
-                    row.get("adx", 0) > 12
-                    and (
-                        (direction == "buy" and row.get("rsi", 0) > 51)
-                        or (direction == "sell" and row.get("rsi", 0) < 49)
-                    )
-                )
-                if not allow:
-                    logger.debug("[Patch] Relax entry reject at %s", row["timestamp"])
-                    continue
-            if (direction == "buy" and row.get("divergence") == "bearish") or (
-                direction == "sell" and row.get("divergence") == "bullish"):
-                logger.info("[Patch] Skip entry due to opposite divergence signal")
-                continue
             price_range = max(row["high"] - row["low"], 1e-6)
             upper_wick_ratio = (row["high"] - row["close"]) / price_range
             lower_wick_ratio = (row["close"] - row["low"]) / price_range
@@ -1652,19 +1471,9 @@ def _execute_backtest(df):
                     continue
             atr = max(row["atr"], min_sl_dist)
             entry = row["close"]
-            equity_now = capital
-            tp1_mult_now, sl_mult_now = tp1_mult, sl_mult
-            if enable_equity_tp_sl_adjuster:
-                tp1_mult_now, sl_mult_now = equity_based_tp_sl(equity_now)
-                logger.info(
-                    "[Patch ETA] Adjusted TP1=%.2f×ATR, SL=%.2f×ATR by equity $%.2f",
-                    tp1_mult_now,
-                    sl_mult_now,
-                    equity_now,
-                )
-            sl = entry - atr * sl_mult_now if direction == "buy" else entry + atr * sl_mult_now
+            sl = entry - atr * sl_mult if direction == "buy" else entry + atr * sl_mult
             tp1 = (
-                entry + atr * tp1_mult_now if direction == "buy" else entry - atr * tp1_mult_now
+                entry + atr * tp1_mult if direction == "buy" else entry - atr * tp1_mult
             )
             tp2_mult_now = row.get("tp2_dynamic", tp2_mult)
             tp2 = (
@@ -1700,18 +1509,7 @@ def _execute_backtest(df):
                         row["adx"],
                         adx_strong,
                     )
-            sl_distance = abs(entry - sl)
-            if enable_auto_lot_scaling:
-                lot = calculate_auto_lot(capital, risk_per_trade, sl_distance, lot_max)
-                logger.info(
-                    "[Patch ALS] Equity $%.2f → Lot %.2f (Risk %.2f%%, SL dist %.2f)",
-                    capital,
-                    lot,
-                    risk_per_trade * 100,
-                    sl_distance,
-                )
-            else:
-                lot = oms.smart_lot(capital, risk_amount, sl_distance)
+            lot = oms.smart_lot(capital, risk_amount, abs(entry - sl))
             entry, sl, tp1, tp2, com = apply_order_costs(
                 entry, sl, tp1, tp2, lot, direction
             )
@@ -1734,7 +1532,6 @@ def _execute_backtest(df):
                 "dd_at_entry": (oms.peak - capital) / oms.peak,
                 "peak_equity": oms.peak,
                 "commission": com,
-                "reentry_count": 0,
             }
             last_entry_idx = i
             logger.info(
@@ -1809,31 +1606,6 @@ def _execute_backtest(df):
                 hit_sl,
             )
 
-            bars_in_trade = i - position.get("entry_idx", i)
-            unrealized_pnl = (
-                (row["close"] - position["entry"]) * position["lot"] * (100 if position["type"] == "buy" else -100)
-            )
-            if enable_micro_sl_exit and bars_in_trade < 10 and unrealized_pnl < -1.5 * row.get("atr", 0):
-                logger.info("[Patch] Micro SL triggered: loss too early")
-                pnl = unrealized_pnl - position.get("commission", 0)
-                capital += pnl
-                trades.append(
-                    {
-                        **position,
-                        "exit_time": row["timestamp"],
-                        "exit": "MicroSL",
-                        "pnl": pnl,
-                        "capital": capital,
-                        "reason_exit": "Micro SL",
-                        "commission": position.get("commission", 0),
-                        "spread": SPREAD_VALUE,
-                        "slippage": SLIPPAGE,
-                    }
-                )
-                oms.update(capital, pnl > 0)
-                position = None
-                continue
-
             if i - position.get("entry_idx", i) >= 25:
                 atr_now = row.get("atr", 0)
                 atr_rolling = (
@@ -1884,42 +1656,7 @@ def _execute_backtest(df):
                     }
                 )
                 oms.update(capital, pnl > 0)
-                last_trade_direction = position["type"]
-                re_count = position.get("reentry_count", 0)
                 position = None
-                if re_count < max_reentry and trend_confirmed(row):
-                    logger.info("[Patch] Re-entry after SL in same trend")
-                    direction = last_trade_direction
-                    atr = max(row["atr"], min_sl_dist)
-                    entry = row["close"]
-                    sl = entry - atr * sl_mult if direction == "buy" else entry + atr * sl_mult
-                    tp1 = entry + atr * tp1_mult if direction == "buy" else entry - atr * tp1_mult
-                    tp2_mult_now = row.get("tp2_dynamic", tp2_mult)
-                    tp2 = entry + atr * tp2_mult_now if direction == "buy" else entry - atr * tp2_mult_now
-                    lot = oms.smart_lot(capital, capital * risk_per_trade, abs(entry - sl))
-                    entry, sl, tp1, tp2, com = apply_order_costs(entry, sl, tp1, tp2, lot, direction)
-                    position = {
-                        "entry_time": row["timestamp"],
-                        "type": direction,
-                        "entry": entry,
-                        "sl": sl,
-                        "tp1": tp1,
-                        "tp2": tp2,
-                        "lot": lot,
-                        "tp1_hit": False,
-                        "breakeven": False,
-                        "entry_idx": i,
-                        "reason_entry": "reentry",
-                        "mode": "RECOVERY" if oms.recovery_mode else "NORMAL",
-                        "risk": capital * risk_per_trade,
-                        "context": "reentry", 
-                        "dd_at_entry": (oms.peak - capital) / oms.peak,
-                        "peak_equity": oms.peak,
-                        "commission": com,
-                        "reentry_count": re_count + 1,
-                    }
-                    last_entry_idx = i
-                    continue
                 if len(trades) <= 3 and capital < initial_capital * 0.8:
                     logger.warning(
                         "[Patch][Debug] Stop - Too fast loss in first 3 trades, Check spread/sl/lot/commission logic!"
@@ -1930,7 +1667,7 @@ def _execute_backtest(df):
             # Partial TP1
             if not position["tp1_hit"] and hit_tp1:
                 pnl = (
-                    position["lot"] * abs(position["tp1"] - position["entry"]) * partial_close_pct
+                    position["lot"] * abs(position["tp1"] - position["entry"]) * 0.5
                 )
                 capital += pnl
                 position["sl"] = position["entry"]
@@ -2051,9 +1788,9 @@ def _execute_backtest(df):
             # Trailing SL after TP1
             if position["tp1_hit"]:
                 trailing_sl = (
-                    row["close"] - row["atr"] * trail_stop_mult
+                    row["close"] - row["atr"] * trailing_atr_mult
                     if position["type"] == "buy"
-                    else row["close"] + row["atr"] * trail_stop_mult
+                    else row["close"] + row["atr"] * trailing_atr_mult
                 )
                 if position["type"] == "buy" and trailing_sl > position["sl"]:
                     position["sl"] = trailing_sl
@@ -2258,160 +1995,5 @@ def run_walkforward_backtest(df, n_folds=5, config_list=None):
     return fold_results
 
 
-# [Patch] Add WFA param grid
-def param_grid():
-    logger.debug("[Patch WFA] Generating parameter grid")
-    grid = {
-        "risk_per_trade": [0.02, 0.03],
-        "force_entry_gap": [100, 150],
-        "partial_close_pct": [0.5, 0.6],
-        "trail_stop_mult": [0.4, 0.6],
-        "lot_max": [5.0, 10.0],
-    }
-    keys, values = zip(*grid.items())
-    return [dict(zip(keys, v)) for v in product(*values)]
-
-
-# [Patch] WFA Param Optimizer
-def optimize_params(df):
-    logger.debug("[Patch WFA] Optimizing parameters")
-    best_score = -np.inf
-    best_params = None
-    for params in param_grid():
-        try:
-            result = run_backtest_custom(df.copy(), params)
-            score = (
-                result.get("Total Return", 0)
-                + 0.5 * result.get("Winrate", 0)
-                - 1000 * result.get("max_drawdown", 0)
-                + 0.1 * result.get("Total Trades", 0)
-            )
-            if score > best_score:
-                best_score = score
-                best_params = params
-        except Exception as e:  # pragma: no cover - safety
-            logger.warning("[Patch WFA] Failed param combo: %s => %s", params, e)
-    logger.info("[Patch WFA] Best params: %s", best_params)
-    return best_params
-
-
-# [Patch] Run backtest with custom param set
-def run_backtest_custom(df, params):
-    logger.debug("[Patch WFA] run_backtest_custom with %s", params)
-    global risk_per_trade, force_entry_gap, partial_close_pct, trail_stop_mult, lot_max
-    risk_per_trade = params.get("risk_per_trade", risk_per_trade)
-    force_entry_gap = params.get("force_entry_gap", force_entry_gap)
-    partial_close_pct = params.get("partial_close_pct", partial_close_pct)
-    trail_stop_mult = params.get("trail_stop_mult", trail_stop_mult)
-    lot_max = params.get("lot_max", lot_max)
-    df = data_quality_check(df)
-    df = calc_indicators(df)
-    df = calc_dynamic_tp2(df)
-    df = label_elliott_wave(df)
-    df = detect_divergence(df)
-    df = label_pattern(df)
-    df = calc_gain_zscore(df)
-    df = calc_signal_score(df)
-    df, _ = shap_feature_importance_placeholder(df)
-    df = tag_session(df)
-    df = tag_spike_guard(df)
-    df = tag_news_event(df)
-    df = smart_entry_signal_goldai2025_style(df)
-    df = apply_session_bias(df)
-    df = apply_spike_news_guard(df)
-    trades = _execute_backtest(df)
-    equity = globals().get("_LAST_EQUITY_DF", pd.DataFrame())
-    stats = analyze_tradelog(trades, equity)
-    final_eq = equity["equity"].iloc[-1] if not equity.empty else initial_capital
-    total_return = final_eq - initial_capital
-    winrate = (trades["pnl"] > 0).mean() * 100 if not trades.empty else 0
-    return {
-        "Final Equity": final_eq,
-        "Total Return": total_return,
-        "Winrate": winrate,
-        "Total Trades": len(trades),
-        **stats,
-    }
-
-
-# [Patch] Save SHAP summary
-def save_shap_summary(df, fold_id):
-    logger.debug("[Patch WFA] Saving SHAP summary for fold %d", fold_id)
-    shap_cols = [c for c in df.columns if c.startswith("shap_importance_")]
-    summary = {c.replace("shap_importance_", ""): df[c].mean() for c in shap_cols}
-    with open(f"shap_summary_fold_{fold_id}.json", "w") as f:
-        json.dump(summary, f, indent=2)
-    logger.info("[Patch] SHAP summary saved for Fold %d", fold_id)
-
-
-# [Patch] Walk-Forward Analysis Runner
-def walk_forward_run(path, fold_days=30):
-    logger.info("[Patch WFA] walk_forward_run on %s", path)
-    df = pd.read_csv(path)
-    df["entry_time"] = pd.to_datetime(df["entry_time"])
-    df = df.sort_values("entry_time")
-    start = df["entry_time"].min()
-    end = df["entry_time"].max()
-    all_results = []
-    fold_id = 0
-    while start < end:
-        fold_id += 1
-        fold_end = start + timedelta(days=fold_days)
-        fold_df = df[(df["entry_time"] >= start) & (df["entry_time"] < fold_end)].copy()
-        if fold_df.empty:
-            break
-        logger.info(
-            "[Patch WFA] Fold %d: %s -> %s",
-            fold_id,
-            start.date(),
-            fold_end.date(),
-        )
-        try:
-            best_params = optimize_params(fold_df)
-            result = run_backtest_custom(fold_df.copy(), best_params)
-            result["Fold"] = f"{start.date()} → {fold_end.date()}"
-            if best_params:
-                result.update(best_params)
-            all_results.append(result)
-            save_shap_summary(fold_df, fold_id)
-        except Exception as e:  # pragma: no cover - safety
-            logger.error("[Patch WFA] Error in Fold %d: %s", fold_id, e)
-        start = fold_end
-    summary = pd.DataFrame(all_results)
-    summary.to_csv("wfa_summary_results.csv", index=False)
-    try:
-        plt.figure(figsize=(12, 6))
-        plt.plot(summary["Fold"], summary["Final Equity"], marker="o", label="Equity")
-        plt.plot(summary["Fold"], summary["Total Return"], marker="x", label="Return")
-        plt.xticks(rotation=45)
-        plt.grid(True)
-        plt.title("WFA Fold Results")
-        plt.tight_layout()
-        plt.legend()
-        plt.savefig("wfa_equity_plot.png")
-        logger.info("[Patch WFA] Plot saved")
-    except Exception as e:  # pragma: no cover - optional
-        logger.warning("[Patch WFA] Plot failed: %s", e)
-    print("✅ Walk Forward Analysis Complete")
-
-
-# [Patch] CLI Menu
-def main():
-    print("\n👉 Select Mode:")
-    print("  [1] Walk Forward Analysis (WFA)")
-    print("  [2] Basic Backtest")
-    print("  [3] Multi-TF Backtest")
-    mode = input("Enter mode number: ").strip()
-    file_input = input("CSV file path (default: trade_log.csv): ").strip() or "trade_log.csv"
-    if mode == "1":
-        walk_forward_run(file_input)
-    elif mode == "2":
-        run_backtest(file_input)
-    elif mode == "3":
-        run_backtest_multi_tf()
-    else:
-        print("❌ Invalid mode")
-
-
 if __name__ == "__main__":
-    main()
+    run_backtest()
