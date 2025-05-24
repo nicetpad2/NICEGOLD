@@ -80,3 +80,8 @@
 - เพิ่มฟังก์ชัน `multi_session_trend_scalping` และใช้ใน pipeline `run_backtest`
 - บันทึกจำนวนสัญญาณเข้าออเดอร์แบบละเอียด
 
+## v3.19 QA Patch
+- เพิ่มตัวแปร `MAX_RAM_MODE` และฟังก์ชัน `log_ram_usage`
+- คำนวณ EMA/RSI/ATR หลายช่วงเมื่อเปิดโหมดใช้แรมสูง
+- บันทึกการใช้ RAM ก่อนและหลังรัน backtest
+
