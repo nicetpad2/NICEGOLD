@@ -315,6 +315,13 @@ class TestDynamicTP2Session(unittest.TestCase):
         expected_tp2 = 1 + enterprise.SPREAD_VALUE + 2.0 * 1.5
         self.assertAlmostEqual(trades["tp2"].iloc[0], expected_tp2)
 
+    def test_execute_backtest_debug_strings(self):
+        import inspect
+
+        src = inspect.getsource(enterprise._execute_backtest)
+        self.assertIn("[Patch][Debug] Holding position", src)
+        self.assertIn("Check TP/SL", src)
+
 
 class TestSpikeNewsGuard(unittest.TestCase):
     def test_tag_spike_guard_flag(self):
