@@ -236,6 +236,36 @@ def on_price_update_patch(order, price, indicators=None):
             )
 
 
+def on_price_update_patch_v2(order, price, indicators=None):
+    """[Patch] Partial TP + Move SL to BE, trailing SL (tighten step) after TP1, for QA backtest"""
+    if (
+        order.partial_tp_level
+        and price >= order.partial_tp_level
+        and not order.partial_taken
+    ):
+        close_position(order, portion=0.5)
+        order.partial_taken = True
+        logger.info(
+            "[Patch] Partial TP hit for order %s: closed 50%% at price %.2f",
+            order.id,
+            price,
+        )
+        if order.move_sl_to_be_trigger:
+            new_sl = order.entry_price
+            set_stop_loss(order, new_sl)
+            logger.info("[Patch] Moved SL to BE for order %s at %.2f", order.id, new_sl)
+    if order.trail_stop and price > order.entry_price and indicators:
+        trail_distance = trailing_atr_multiplier * indicators.get("ATR", 0) * 0.7
+        new_sl = max(order.stop_loss, price - trail_distance)
+        if new_sl > order.stop_loss:
+            set_stop_loss(order, new_sl)
+            logger.debug(
+                "[Patch] Tight Trailing SL updated for order %s to %.2f",
+                order.id,
+                new_sl,
+            )
+
+
 def open_position(lot_size, direction):
     logger.info("[Patch] Opening position %s %.2f lots", direction, lot_size)
 
@@ -862,6 +892,106 @@ def smart_entry_signal_multi_tf_ema_adx(df, min_entry_gap_minutes=60):
     return df
 
 
+def smart_entry_signal_multi_tf_ema_adx_optimized(df, min_entry_gap_minutes=60):
+    """[Patch] Multi-TF EMA+ADX+RSI+Momentum+ATR Filter (Maintain Entry Count, Boost Winrate)"""
+    import pandas as pd
+    import numpy as np
+    logger.info("[Patch] Entry signal (optimized): Multi-TF EMA+ADX+Momentum+ATR")
+    df = df.copy()
+    df["entry_signal"] = None
+    last_entry_time = None
+    min_gap = pd.Timedelta(minutes=min_entry_gap_minutes)
+
+    atr_threshold = df["atr"].quantile(0.20)
+    gainz_buy = 0.0
+    gainz_sell = 0.0
+
+    for i in range(max(50, df.index.min()), len(df)):
+        ema_fast = df["ema_fast"].iloc[i]
+        ema_slow = df["ema_slow"].iloc[i]
+        m15_ema_fast = df["m15_ema_fast"].iloc[i] if "m15_ema_fast" in df.columns else np.nan
+        m15_ema_slow = df["m15_ema_slow"].iloc[i] if "m15_ema_slow" in df.columns else np.nan
+        adx = df["adx"].iloc[i]
+        rsi = df["rsi"].iloc[i]
+        atr = df["atr"].iloc[i]
+        gain_z = df["gain_z"].iloc[i] if "gain_z" in df.columns else 0.0
+        divergence = df["divergence"].iloc[i] if "divergence" in df.columns else None
+        timestamp = pd.to_datetime(df["timestamp"].iloc[i])
+        price_range = max(df["high"].iloc[i] - df["low"].iloc[i], 1e-8)
+        upper_wick = (df["high"].iloc[i] - df["close"].iloc[i]) / price_range
+        lower_wick = (df["close"].iloc[i] - df["low"].iloc[i]) / price_range
+        relaxed_wick = (upper_wick < 0.80 and lower_wick < 0.80)
+
+        if atr < atr_threshold:
+            continue
+
+        if last_entry_time is not None and timestamp - last_entry_time < min_gap:
+            continue
+
+        if (
+            ema_fast > ema_slow
+            and m15_ema_fast > m15_ema_slow
+            and adx > 12
+            and rsi > 51
+            and gain_z > gainz_buy
+            and relaxed_wick
+            and (divergence is None or divergence == "bullish")
+        ):
+            df.at[df.index[i], "entry_signal"] = "buy"
+            last_entry_time = timestamp
+            logger.info(
+                f"[Patch] Entry: BUY at {timestamp} (ADX={adx:.2f}, RSI={rsi:.2f}, GZ={gain_z:.2f}, Div={divergence})"
+            )
+        elif (
+            ema_fast < ema_slow
+            and m15_ema_fast < m15_ema_slow
+            and adx > 12
+            and rsi < 49
+            and gain_z < gainz_sell
+            and relaxed_wick
+            and (divergence is None or divergence == "bearish")
+        ):
+            df.at[df.index[i], "entry_signal"] = "sell"
+            last_entry_time = timestamp
+            logger.info(
+                f"[Patch] Entry: SELL at {timestamp} (ADX={adx:.2f}, RSI={rsi:.2f}, GZ={gain_z:.2f}, Div={divergence})"
+            )
+
+    force_entry_gap = 300
+    last_entry = 0
+    for i in range(len(df)):
+        if pd.notna(df["entry_signal"].iloc[i]):
+            last_entry = i
+        elif i - last_entry > force_entry_gap:
+            ema_fast = df["ema_fast"].iloc[i]
+            ema_slow = df["ema_slow"].iloc[i]
+            m15_ema_fast = df["m15_ema_fast"].iloc[i] if "m15_ema_fast" in df.columns else np.nan
+            m15_ema_slow = df["m15_ema_slow"].iloc[i] if "m15_ema_slow" in df.columns else np.nan
+            adx = df["adx"].iloc[i]
+            rsi = df["rsi"].iloc[i]
+            atr = df["atr"].iloc[i]
+            gain_z = df["gain_z"].iloc[i] if "gain_z" in df.columns else 0.0
+            relaxed_wick = True
+            if {"high", "low", "close"}.issubset(df.columns):
+                price_range = max(df["high"].iloc[i] - df["low"].iloc[i], 1e-8)
+                upper_wick = (df["high"].iloc[i] - df["close"].iloc[i]) / price_range
+                lower_wick = (df["close"].iloc[i] - df["low"].iloc[i]) / price_range
+                relaxed_wick = (upper_wick < 0.80 and lower_wick < 0.80)
+            if atr >= atr_threshold and adx > 12 and relaxed_wick:
+                if ema_fast > ema_slow and m15_ema_fast > m15_ema_slow and rsi > 51 and gain_z > gainz_buy:
+                    df.at[i, "entry_signal"] = "buy"
+                    logger.info(f"[Patch] Force Entry: BUY at {df['timestamp'].iloc[i]}")
+                    last_entry = i
+                elif ema_fast < ema_slow and m15_ema_fast < m15_ema_slow and rsi < 49 and gain_z < gainz_sell:
+                    df.at[i, "entry_signal"] = "sell"
+                    logger.info(f"[Patch] Force Entry: SELL at {df['timestamp'].iloc[i]}")
+                    last_entry = i
+    logger.info(
+        f"[Patch] Optimized Entry: buy={(df['entry_signal']=='buy').sum()}, sell={(df['entry_signal']=='sell').sum()}"
+    )
+    return df
+
+
 def calc_adaptive_lot(equity, adx, recovery_mode=False, win_streak=0):
     """[Patch] Adaptive lot sizing based on portfolio growth + ADX + Recovery/WinStreak"""
     base_risk = 0.01
@@ -1415,25 +1545,36 @@ def _execute_backtest(df):
     return df_trades
 
 
-def qa_validate_backtest(trades_df, equity_df, min_trades=15, min_profit=15):
+def qa_validate_backtest(trades_df, equity_df, min_trades=15, min_profit=15, prev_winrate=None):
     """[Patch] QA validation after backtest"""
     orders = len(trades_df)
-    profit = (
-        equity_df["equity"].iloc[-1] - initial_capital if not equity_df.empty else 0
-    )
+    profit = equity_df["equity"].iloc[-1] - initial_capital if not equity_df.empty else 0
     dd = equity_df["dd"].max() if not equity_df.empty else 0
+    winrate = (trades_df["pnl"] > 0).mean() if not trades_df.empty else 0
     if orders < min_trades:
         logger.warning("[Patch] QA fail: trades < %d", min_trades)
+    if orders < 279:
+        logger.error("[Patch] QA fail: orders < 279")
     if profit < min_profit:
         logger.warning("[Patch] QA fail: profit %.2f < %.2f", profit, min_profit)
+    if prev_winrate is not None and winrate < prev_winrate:
+        logger.warning(
+            "[Patch] Winrate dropped from %.2f%% to %.2f%%", prev_winrate * 100, winrate * 100
+        )
     if dd > kill_switch_dd:
         logger.warning("[Patch] QA fail: DD %.2f%% > kill switch", dd * 100)
-    if orders >= min_trades and profit >= min_profit and dd <= kill_switch_dd:
+    if (
+        orders >= max(min_trades, 279)
+        and profit >= min_profit
+        and dd <= kill_switch_dd
+        and (prev_winrate is None or winrate >= prev_winrate)
+    ):
         logger.info("[Patch] QA check passed")
     return {
         "trades": orders,
         "profit": profit,
         "dd": dd,
+        "winrate": winrate,
     }
 
 
