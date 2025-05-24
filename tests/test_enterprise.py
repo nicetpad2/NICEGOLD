@@ -796,7 +796,7 @@ class TestSpikeNewsGuard(unittest.TestCase):
 
     def test_config_defaults(self):
         assert enterprise.strategy_mode == "ib_commission_mode"
-        assert enterprise.force_entry_gap == 100
+        assert enterprise.force_entry_gap == 200
         assert enterprise.partial_close_pct == 0.6
         assert enterprise.enable_micro_sl_exit
 
@@ -837,6 +837,29 @@ class TestSpikeNewsGuard(unittest.TestCase):
 
     def test_param_grid_length(self):
         self.assertGreaterEqual(len(enterprise.param_grid()), 1)
+
+    def test_early_force_close_opposite_momentum(self):
+        enterprise.TRADE_DIR = "."
+        data = {
+            "timestamp": pd.date_range("2020-01-01", periods=26, freq="min"),
+            "open": [1.0] * 26,
+            "high": [1.1] * 26,
+            "low": [0.9] * 26,
+            "close": [1.0] * 26,
+            "ema_fast": [2] * 26,
+            "ema_slow": [1] * 26,
+            "rsi": [60] * 26,
+            "adx": [20] * 26,
+            "atr": [2.0] * 26,
+            "entry_signal": ["buy"] + [None] * 25,
+            "gain_z": [0.2] * 25 + [-0.5],
+        }
+        df = pd.DataFrame(data)
+        trades = enterprise._execute_backtest(df)
+        for f in os.listdir("."):
+            if f.startswith("trade_log_") or f.startswith("equity_curve_"):
+                os.remove(f)
+        self.assertIn("EarlyForceClose", trades["exit"].values)
 
     def test_run_backtest_custom_keys(self):
         df = pd.DataFrame(
