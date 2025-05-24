@@ -386,3 +386,9 @@
 ### Changed
 - ปิดไม้เร็วหาก ATR/gain_z ต่ำหลังถือ 25 แท่ง
 - Recovery mode ลดความเสี่ยงเมื่อ momentum ไม่ดี
+
+## [v1.9.58] — 2025-07-28
+### Added
+- ฟังก์ชัน `entry_signal_always_on` สำหรับเข้าไม้ต่อเนื่อง
+### Changed
+- เปลี่ยน pipeline backtest ใช้ `entry_signal_always_on` โหมด `trend_follow`

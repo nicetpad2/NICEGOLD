@@ -462,6 +462,23 @@ class TestSpikeNewsGuard(unittest.TestCase):
         res = enterprise.multi_session_trend_scalping(df)
         self.assertTrue((res["entry_signal"] == "buy").any())
 
+    def test_entry_signal_always_on_every_bar(self):
+        df = pd.DataFrame({"ema_fast": [2, 2, 2], "ema_slow": [1, 1, 1]})
+        res = enterprise.entry_signal_always_on(df, mode="every_bar")
+        self.assertEqual(res["entry_signal"].tolist(), ["buy", "sell", "buy"])
+
+    def test_entry_signal_always_on_step(self):
+        df = pd.DataFrame({"ema_fast": [2] * 5, "ema_slow": [1] * 5})
+        res = enterprise.entry_signal_always_on(df, mode="step", step=2)
+        self.assertEqual(
+            res["entry_signal"].dropna().tolist(), ["buy", "sell", "buy"]
+        )
+
+    def test_entry_signal_always_on_trend_follow(self):
+        df = pd.DataFrame({"ema_fast": [2, 1], "ema_slow": [1, 2]})
+        res = enterprise.entry_signal_always_on(df, mode="trend_follow")
+        self.assertEqual(res["entry_signal"].tolist(), ["buy", "sell"])
+
     def test_constants_values(self):
         self.assertEqual(enterprise.COMMISSION_PER_LOT, 0.10)
         self.assertEqual(enterprise.SLIPPAGE, 0.2)

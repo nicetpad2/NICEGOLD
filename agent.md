@@ -96,3 +96,7 @@
 - ปรับ force close เร็วหาก ATR หรือ `gain_z` ต่ำหลังถือ 25 แท่ง
 - Recovery mode ลดความเสี่ยงและข้ามไม้เมื่อ momentum ไม่ดี
 - เพิ่ม `analyze_tradelog` สรุปสถิติ win/loss streak และ drawdown
+
+## v3.22 QA Patch
+- เพิ่มฟังก์ชัน `entry_signal_always_on` สร้างสัญญาณเข้าไม้ตลอดปี
+- ปรับ pipeline ใน `run_backtest` และ `run_backtest_multi_tf` ใช้โหมด `trend_follow`
