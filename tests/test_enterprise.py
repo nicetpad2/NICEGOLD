@@ -266,5 +266,49 @@ class TestDynamicTP2Session(unittest.TestCase):
                 os.remove(f)
         self.assertAlmostEqual(trades['tp2'].iloc[0], 1 + 2.0 * 1.5)
 
+
+class TestSpikeNewsGuard(unittest.TestCase):
+    def test_tag_spike_guard_flag(self):
+        atr = [1]*1000 + [5]
+        high = [1]*1000 + [10]
+        low = [0]*1000 + [5]
+        df = pd.DataFrame({'atr': atr, 'high': high, 'low': low})
+        res = enterprise.tag_spike_guard(df.copy())
+        self.assertTrue(res['spike_guard'].iloc[-1])
+
+    def test_tag_news_event_mask(self):
+        df = pd.DataFrame({'timestamp': pd.date_range('2020-01-01', periods=3, freq='min')})
+        news_times = [(df['timestamp'].iloc[1], df['timestamp'].iloc[2])]
+        res = enterprise.tag_news_event(df.copy(), news_times=news_times)
+        self.assertTrue(res['news_guard'].iloc[2])
+
+    def test_apply_spike_news_guard(self):
+        df = pd.DataFrame({'entry_signal': ['buy', 'sell'], 'spike_guard': [True, False], 'news_guard': [False, True]})
+        res = enterprise.apply_spike_news_guard(df.copy())
+        self.assertIsNone(res['entry_signal'].iloc[0])
+        self.assertIsNone(res['entry_signal'].iloc[1])
+
+    def test_split_folds_count(self):
+        df = pd.DataFrame({'a': range(10)})
+        folds = enterprise.split_folds(df, n_folds=3)
+        self.assertEqual(len(folds), 3)
+
+    def test_run_walkforward_backtest_returns(self):
+        df = pd.DataFrame({
+            'timestamp': pd.date_range('2020-01-01', periods=5, freq='min'),
+            'open': [1]*5,
+            'high': [1]*5,
+            'low': [1]*5,
+            'close': [1]*5,
+            'atr': [0.1]*5,
+            'ema_fast': [1]*5,
+            'ema_slow': [1]*5,
+            'rsi': [50]*5,
+            'adx': [20]*5,
+            'entry_signal': ['buy']*5
+        })
+        results = enterprise.run_walkforward_backtest(df, n_folds=2)
+        self.assertEqual(len(results), 2)
+
 if __name__ == '__main__':
     unittest.main()

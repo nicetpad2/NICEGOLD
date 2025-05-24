@@ -318,3 +318,9 @@
 - Session tagging and session-based entry filter
 ### Changed
 - Backtest pipelines use dynamic TP2 and session bias
+
+## [v1.9.48] — 2025-07-18
+### Added
+- Spike Guard (ATR/WRB) and News Filter modules
+- Trade log now records reason_entry, reason_exit and context fields
+- Walk-Forward backtest utilities `split_folds` and `run_walkforward_backtest`

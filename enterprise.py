@@ -401,6 +401,40 @@ def apply_session_bias(df, entry_col='entry_signal', session_col='session'):
     return df
 
 
+def tag_spike_guard(df, atr_col='atr', spike_col='spike_guard'):
+    """[Patch] Tag Spike ช่วงที่ ATR หรือ Candle body ใหญ่ผิดปกติ"""
+    logger.info("[Patch] Spike Guard tagging")
+    df = df.copy()
+    df[spike_col] = False
+    atr_long = df[atr_col].rolling(1000).mean()
+    spike_atr = df[atr_col] > 1.8 * atr_long
+    wrb = (df['high'] - df['low']) > 2.0 * (df['high'] - df['low']).rolling(200).mean()
+    spike = spike_atr | wrb
+    df.loc[spike, spike_col] = True
+    return df
+
+
+def tag_news_event(df, news_times=None, news_col='news_guard'):
+    """[Patch] News Filter ช่วงเวลาหลีกเลี่ยงเทรด"""
+    logger.info("[Patch] News Guard tagging")
+    df = df.copy()
+    df[news_col] = False
+    if news_times:
+        for t_start, t_end in news_times:
+            mask = (df['timestamp'] >= t_start) & (df['timestamp'] <= t_end)
+            df.loc[mask, news_col] = True
+    return df
+
+
+def apply_spike_news_guard(df, entry_col='entry_signal', spike_col='spike_guard', news_col='news_guard'):
+    """[Patch] Block entry_signal ถ้ามี spike หรือช่วงข่าว"""
+    logger.info("[Patch] Block entry when spike or news event")
+    df = df.copy()
+    mask_block = (df[spike_col] == True) | (df[news_col] == True)
+    df.loc[mask_block, entry_col] = None
+    return df
+
+
 def is_strong_trend(df, i):
     """Check if strong trend using rolling EMA and ADX."""
     if i < trend_lookback * 2:
@@ -667,9 +701,10 @@ def _execute_backtest(df):
                 'lot': lot,
                 'tp1_hit': False,
                 'breakeven': False,
-                'reason_entry': f"TrendOnly+SLGuard {direction}",
+                'reason_entry': f"{row.get('wave_phase')}+{row.get('pattern_label')}+{row.get('divergence')}+score={row.get('signal_score')}+session={row.get('session')}",
                 'mode': mode,
                 'risk': risk_amount,
+                'context': f"Spike={row.get('spike_guard')}, News={row.get('news_guard')}",
                 'dd_at_entry': (oms.peak-capital)/oms.peak,
                 'peak_equity': oms.peak
             }
@@ -686,7 +721,25 @@ def _execute_backtest(df):
                     position['sl'] = position['entry']
                     position['tp1_hit'] = True
                     position['breakeven'] = True
-                    trades.append({**position, 'exit_time': row['timestamp'], 'exit': 'TP1', 'pnl': pnl, 'capital': capital, 'reason_exit': 'Partial TP1'})
+                    trades.append({
+                        **position,
+                        'exit_time': row['timestamp'],
+                        'exit': 'TP1',
+                        'pnl': pnl,
+                        'capital': capital,
+                        'reason_exit': 'Partial TP1',
+                        'reason_entry': position.get('reason_entry', ''),
+                        'context': position.get('context', ''),
+                        'wave_phase': row.get('wave_phase'),
+                        'pattern_label': row.get('pattern_label'),
+                        'divergence': row.get('divergence'),
+                        'signal_score': row.get('signal_score'),
+                        'session': row.get('session'),
+                        'spike_guard': row.get('spike_guard'),
+                        'news_guard': row.get('news_guard'),
+                        'risk': position.get('risk'),
+                        'oms_mode': position.get('mode')
+                    })
                     logger.info("[Patch] Partial TP1 at %.2f (+%.2f$)", position['tp1'], pnl)
                     oms.update(capital, pnl>0)
                     continue
@@ -696,7 +749,25 @@ def _execute_backtest(df):
             if hit_tp2:
                 pnl = position['lot'] * abs(position['tp2']-position['entry']) * (0.5 if position['tp1_hit'] else 1)
                 capital += pnl
-                trades.append({**position, 'exit_time': row['timestamp'], 'exit': 'TP2', 'pnl': pnl, 'capital': capital, 'reason_exit': 'TP2'})
+                trades.append({
+                    **position,
+                    'exit_time': row['timestamp'],
+                    'exit': 'TP2',
+                    'pnl': pnl,
+                    'capital': capital,
+                    'reason_exit': 'TP2',
+                    'reason_entry': position.get('reason_entry', ''),
+                    'context': position.get('context', ''),
+                    'wave_phase': row.get('wave_phase'),
+                    'pattern_label': row.get('pattern_label'),
+                    'divergence': row.get('divergence'),
+                    'signal_score': row.get('signal_score'),
+                    'session': row.get('session'),
+                    'spike_guard': row.get('spike_guard'),
+                    'news_guard': row.get('news_guard'),
+                    'risk': position.get('risk'),
+                    'oms_mode': position.get('mode')
+                })
                 logger.info("[Patch] TP2 at %.2f (+%.2f$)", position['tp2'], pnl)
                 oms.update(capital, pnl>0)
                 position = None
@@ -707,7 +778,25 @@ def _execute_backtest(df):
             if hit_sl:
                 pnl = -position['lot'] * abs(position['entry']-position['sl'])
                 capital += pnl
-                trades.append({**position, 'exit_time': row['timestamp'], 'exit': 'SL', 'pnl': pnl, 'capital': capital, 'reason_exit': 'SL/BE'})
+                trades.append({
+                    **position,
+                    'exit_time': row['timestamp'],
+                    'exit': 'SL',
+                    'pnl': pnl,
+                    'capital': capital,
+                    'reason_exit': 'SL/BE',
+                    'reason_entry': position.get('reason_entry', ''),
+                    'context': position.get('context', ''),
+                    'wave_phase': row.get('wave_phase'),
+                    'pattern_label': row.get('pattern_label'),
+                    'divergence': row.get('divergence'),
+                    'signal_score': row.get('signal_score'),
+                    'session': row.get('session'),
+                    'spike_guard': row.get('spike_guard'),
+                    'news_guard': row.get('news_guard'),
+                    'risk': position.get('risk'),
+                    'oms_mode': position.get('mode')
+                })
                 logger.info("[Patch] SL/BE at %.2f (%.2f$)", position['sl'], pnl)
                 oms.update(capital, pnl>0)
                 position = None
@@ -724,6 +813,8 @@ def _execute_backtest(df):
     # Save Trade Log & Equity Curve
     df_trades = pd.DataFrame(trades)
     df_equity = pd.DataFrame(equity_curve)
+    if df_equity.empty:
+        df_equity = pd.DataFrame({'timestamp': [], 'equity': [], 'dd': []})
     now_str = datetime.now().strftime("%Y%m%d_%H%M%S")
     trade_log_path = os.path.join(TRADE_DIR, f"trade_log_{now_str}.csv")
     equity_curve_path = os.path.join(TRADE_DIR, f"equity_curve_{now_str}.csv")
@@ -776,8 +867,11 @@ def run_backtest(path=None):
     df = calc_gain_zscore(df)
     df = calc_signal_score(df)
     df = tag_session(df)
+    df = tag_spike_guard(df)
+    df = tag_news_event(df)
     df = smart_entry_signal_goldai2025_style(df)
     df = apply_session_bias(df)
+    df = apply_spike_news_guard(df)
     return _execute_backtest(df)
 
 
@@ -798,9 +892,47 @@ def run_backtest_multi_tf(path_m1=M1_PATH, path_m15=M15_PATH):
     df_m1 = calc_gain_zscore(df_m1)
     df_m1 = calc_signal_score(df_m1)
     df_m1 = tag_session(df_m1)
+    df_m1 = tag_spike_guard(df_m1)
+    df_m1 = tag_news_event(df_m1)
     df_m1 = smart_entry_signal_goldai2025_style(df_m1)
     df_m1 = apply_session_bias(df_m1)
+    df_m1 = apply_spike_news_guard(df_m1)
     return _execute_backtest(df_m1)
+
+
+def split_folds(df, n_folds=5):
+    """[Patch] แบ่งข้อมูลเป็น Folds (Walk-Forward) อย่างเท่าๆ กัน"""
+    logger.info(f"[Patch] Splitting data into {n_folds} folds (WFV)")
+    fold_size = int(np.ceil(len(df) / n_folds))
+    fold_indices = [(i * fold_size, min((i + 1) * fold_size, len(df))) for i in range(n_folds)]
+    return [df.iloc[start:end].reset_index(drop=True) for start, end in fold_indices]
+
+
+def run_walkforward_backtest(df, n_folds=5, config_list=None):
+    """[Patch] รัน Backtest แบบ Walk-Forward Validation (WFV)"""
+    logger.info("[Patch] Running Walk-Forward Validation")
+    fold_results = []
+    folds = split_folds(df, n_folds=n_folds)
+    for i, fold_df in enumerate(folds):
+        logger.info(f"[Patch] --- Fold #{i+1}/{n_folds} ---")
+        fold_config = config_list[i] if config_list and len(config_list) > i else None
+        fold_df = calc_indicators(fold_df)
+        fold_df = calc_dynamic_tp2(fold_df)
+        fold_df = label_elliott_wave(fold_df)
+        fold_df = detect_divergence(fold_df)
+        fold_df = label_pattern(fold_df)
+        fold_df = calc_gain_zscore(fold_df)
+        fold_df = calc_signal_score(fold_df)
+        fold_df = tag_session(fold_df)
+        fold_df = tag_spike_guard(fold_df)
+        fold_df = tag_news_event(fold_df)
+        fold_df = smart_entry_signal_goldai2025_style(fold_df)
+        fold_df = apply_session_bias(fold_df)
+        fold_df = apply_spike_news_guard(fold_df)
+        result = _execute_backtest(fold_df)
+        fold_results.append(result)
+    logger.info("[Patch] Walk-Forward complete")
+    return fold_results
 
 if __name__ == "__main__":
     run_backtest()
