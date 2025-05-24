@@ -490,22 +490,10 @@ class TestSpikeNewsGuard(unittest.TestCase):
         res = enterprise.multi_session_trend_scalping(df)
         self.assertTrue((res["entry_signal"] == "buy").any())
 
-    def test_entry_signal_always_on_every_bar(self):
-        df = pd.DataFrame({"ema_fast": [2, 2, 2], "ema_slow": [1, 1, 1]})
-        res = enterprise.entry_signal_always_on(df, mode="every_bar")
+    def test_entry_signal_always_on_pattern(self):
+        df = pd.DataFrame({"ema_fast": [2, 2, 2]})
+        res = enterprise.entry_signal_always_on(df)
         self.assertEqual(res["entry_signal"].tolist(), ["buy", "sell", "buy"])
-
-    def test_entry_signal_always_on_step(self):
-        df = pd.DataFrame({"ema_fast": [2] * 5, "ema_slow": [1] * 5})
-        res = enterprise.entry_signal_always_on(df, mode="step", step=2)
-        self.assertEqual(
-            res["entry_signal"].dropna().tolist(), ["buy", "sell", "buy"]
-        )
-
-    def test_entry_signal_always_on_trend_follow(self):
-        df = pd.DataFrame({"ema_fast": [2, 1], "ema_slow": [1, 2]})
-        res = enterprise.entry_signal_always_on(df, mode="trend_follow")
-        self.assertEqual(res["entry_signal"].tolist(), ["buy", "sell"])
 
     def test_entry_signal_trend_relax_basic(self):
         df = pd.DataFrame(
@@ -723,6 +711,35 @@ class TestSpikeNewsGuard(unittest.TestCase):
         )
         folds = enterprise.walkforward_run(df, fold_size=3)
         self.assertEqual(len(folds), 4)
+
+    def test_entry_signal_always_on_alternate(self):
+        df = pd.DataFrame({"v": range(4)})
+        res = enterprise.entry_signal_always_on(df)
+        self.assertEqual(res["entry_signal"].tolist(), ["buy", "sell", "buy", "sell"])
+
+    def test_calc_aggressive_lot(self):
+        lot = enterprise.calc_aggressive_lot(100, 2)
+        self.assertGreater(lot, 0)
+
+    def test_run_backtest_aggressive_returns_df(self):
+        df = pd.DataFrame(
+            {
+                "timestamp": pd.date_range("2020-01-01", periods=10, freq="min"),
+                "open": np.linspace(1, 1.1, 10),
+                "high": np.linspace(1, 1.1, 10) + 0.05,
+                "low": np.linspace(1, 1.1, 10) - 0.05,
+                "close": np.linspace(1, 1.1, 10),
+            }
+        )
+        df.to_csv("tmp.csv", index=False)
+        enterprise.M1_PATH = "tmp.csv"
+        enterprise.TRADE_DIR = "."
+        trades = enterprise.run_backtest_aggressive()
+        os.remove("tmp.csv")
+        for f in os.listdir("."):
+            if f.startswith("trade_log_") or f.startswith("equity_curve_"):
+                os.remove(f)
+        self.assertIsInstance(trades, pd.DataFrame)
 
 
 if __name__ == "__main__":

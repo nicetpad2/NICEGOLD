@@ -99,3 +99,6 @@
 - `smart_entry_signal_enterprise_v1` เพิ่ม QA Guard ตรวจจำนวนสัญญาณลดลง
 - `_execute_backtest` ปรับ Adaptive Entry เฉพาะจุดเมื่ออยู่ใน Recovery Mode
 - ปรับ Trailing SL หลัง TP1 ให้ทำงานเมื่อ ADX > 20
+
+## v3.23 QA Patch
+- เพิ่มโหมด Aggressive Entry ใช้สัญญาณสลับทุกแท่งและ lot sizing ใหม่
