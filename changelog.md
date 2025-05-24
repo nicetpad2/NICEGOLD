@@ -400,3 +400,9 @@
 - Early force close เปลี่ยนเป็น warning เท่านั้น
 - ลด boost lot และ recovery multiplier
 
+## [v1.9.60] — 2025-07-30
+### Added
+- ฟังก์ชัน `calc_basic_indicators`, `relaxed_entry_signal` และ `walkforward_run`
+### Changed
+- เพิ่มระบบ Force Entry ในช่วงไม่มีสัญญาณและ QA log ต่อ fold
+

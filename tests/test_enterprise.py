@@ -584,6 +584,43 @@ class TestSpikeNewsGuard(unittest.TestCase):
         self.assertIn("max_win_streak", stats)
         self.assertIn("max_loss_streak", stats)
 
+    def test_calc_basic_indicators_columns(self):
+        df = pd.DataFrame(
+            {
+                "close": [1, 2, 3, 4, 5],
+                "high": [1, 2, 3, 4, 5],
+                "low": [0.5, 1, 1.5, 2, 2.5],
+            }
+        )
+        res = enterprise.calc_basic_indicators(df)
+        for c in ["EMA_20", "EMA_50", "RSI_14", "ATR_14"]:
+            self.assertIn(c, res.columns)
+
+    def test_relaxed_entry_signal_force_gap(self):
+        df = pd.DataFrame(
+            {
+                "open": [1, 1.1] * 10,
+                "close": [1.2, 0.9] * 10,
+                "high": [1.3, 1.2] * 10,
+                "low": [0.8, 0.7] * 10,
+            }
+        )
+        df = enterprise.calc_basic_indicators(df)
+        res = enterprise.relaxed_entry_signal(df, force_gap=1)
+        self.assertTrue(res["entry_signal"].notna().any())
+
+    def test_walkforward_run_returns_list(self):
+        df = pd.DataFrame(
+            {
+                "open": [1] * 10,
+                "close": [1] * 10,
+                "high": [1] * 10,
+                "low": [1] * 10,
+            }
+        )
+        folds = enterprise.walkforward_run(df, fold_size=3)
+        self.assertEqual(len(folds), 4)
+
 
 if __name__ == "__main__":
     unittest.main()
