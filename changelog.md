@@ -484,3 +484,8 @@
 ### Added
 - รวมระบบ Walk Forward Analysis เข้า enterprise.py และเพิ่มเมนู CLI เลือกโหมด
 
+
+## [v1.9.73] — 2025-08-09
+### Changed
+- [Patch G] ปรับ smart_entry_signal_enterprise_v1 ลด gain_z threshold และเพิ่มเงื่อนไข wave_phase="mid" พร้อมลด force_entry_gap เป็น 50 และปิด QA Entry Drop Guard
+

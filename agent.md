@@ -137,3 +137,7 @@
 
 ## v3.30 QA Patch
 - รวมระบบ Walk Forward Analysis เข้า enterprise.py และเพิ่มเมนู CLI เลือกโหมด
+
+## v3.31 QA Patch
+- [Patch G] ปรับสัญญาณ smart_entry_signal_enterprise_v1 ลด gain_z threshold, รองรับ wave_phase="mid" และ force_entry_gap=50
+
