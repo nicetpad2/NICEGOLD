@@ -36,17 +36,21 @@ def log_ram_usage(note=""):
 
 # [Patch] Parameters – MM & Growth
 initial_capital = 100.0
-risk_per_trade = 0.01  # [Patch] ลดความเสี่ยงต่อไม้เหลือ 1%
+# [Patch] Aggressive risk per trade
+risk_per_trade = 0.04
 tp1_mult = 2.0  # [Patch] ปรับ TP1 multiplier ตามความเป็นจริง
 tp2_mult = 4.0  # [Patch] ปรับ TP2 multiplier ตามความเป็นจริง
 sl_mult = 1.2  # [Patch] ลด SL multiplier ให้ใกล้เคียงตลาดจริง
-min_sl_dist = 4.0  # [Patch] ระยะ SL ขั้นต่ำสมจริง
-lot_max = 5.0  # [Patch] ปลดลิมิตให้สามารถปั้นพอร์ตโต
+# [Patch] Tight SL distance for aggressive mode
+min_sl_dist = 2.0
+# [Patch] High lot cap but still limited for safety
+lot_max = 1.0
 lot_cap_500 = 0.5
 lot_cap_2000 = 1.0
 lot_cap_10000 = 2.5
 lot_cap_max = 5.0
-cooldown_bars = 0  # [Patch] ไม่มี cooldown
+# [Patch] No cooldown for aggressive mode
+cooldown_bars = 0
 oms_recovery_loss = 3  # [Patch] Recovery เร็วขึ้น (จาก 4 → 3)
 win_streak_boost = 1.3  # [Patch] Boost สูงขึ้น
 recovery_multiplier = 3.0  # [Patch] Aggressive recovery
@@ -56,7 +60,8 @@ trend_lookback = 25  # [Patch] เร็วขึ้น (trend สั้นล�
 adx_period = 14
 adx_thresh = 12  # [Patch] Relax adx guard
 adx_strong = 23  # [Patch] ปรับ adx strong
-force_entry_gap = 300  # [Patch] Force entry หากไม่มี order เกิน 300 แท่ง
+# [Patch] Force entry gap ลดเหลือ 50 แท่ง (แต่ระบบ aggressive เข้าแท่งเว้นแท่งอยู่แล้ว)
+force_entry_gap = 50
 trade_start_hour = 8
 trade_end_hour = 23
 
@@ -590,22 +595,18 @@ def calc_basic_indicators(df):
     return df
 
 
-def entry_signal_always_on(df, mode="every_bar", step=1):
-    logger.info("[Patch] entry_signal_always_on placeholder")
+def entry_signal_always_on(df, mode="alternate"):
+    """Generate aggressive alternating entry signals every bar."""
+    logger.info("[Patch] entry_signal_always_on: Aggressive Mode")
     df = df.copy()
     df["entry_signal"] = None
-    if mode == "every_bar":
-        df.loc[::2, "entry_signal"] = "buy"
-        df.loc[1::2, "entry_signal"] = "sell"
-    elif mode == "step":
-        signal = "buy"
-        for i in range(0, len(df), step):
-            df.at[df.index[i], "entry_signal"] = signal
-            signal = "sell" if signal == "buy" else "buy"
-    else:  # trend_follow
-        cond = df["ema_fast"] > df["ema_slow"]
-        df.loc[cond, "entry_signal"] = "buy"
-        df.loc[~cond, "entry_signal"] = "sell"
+    df.loc[df.index % 2 == 0, "entry_signal"] = "buy"
+    df.loc[df.index % 2 == 1, "entry_signal"] = "sell"
+    logger.info(
+        "[Patch] Aggressive entry: buy=%d, sell=%d",
+        (df["entry_signal"] == "buy").sum(),
+        (df["entry_signal"] == "sell").sum(),
+    )
     return df
 
 
@@ -1418,6 +1419,20 @@ def apply_order_costs(
     return entry_adj, sl, tp1, tp2, com
 
 
+# [Patch] Aggressive lot sizing (no strict cap)
+def calc_aggressive_lot(capital, entry_sl_dist):
+    base_risk = risk_per_trade
+    lot = (capital * base_risk) / max(entry_sl_dist, min_sl_dist)
+    lot = max(0.01, min(lot, lot_max))
+    logger.info(
+        "[Patch] Aggressive lot sizing: cap=%.2f, sl_dist=%.2f, lot=%.3f",
+        capital,
+        entry_sl_dist,
+        lot,
+    )
+    return lot
+
+
 def _execute_backtest(df):
     df = df.dropna(subset=["atr", "ema_fast", "ema_slow", "rsi"]).reset_index(drop=True)
 
@@ -2020,5 +2035,198 @@ def run_walkforward_backtest(df, n_folds=5, config_list=None):
     return fold_results
 
 
+def run_backtest_aggressive(path=None):
+    """Run aggressive entry backtest (machine gun mode)."""
+    logger.info("[Patch] Running backtest: Aggressive Entry")
+    if path is None:
+        path = M1_PATH
+    df = load_data(path)
+    df = data_quality_check(df)
+    df = calc_indicators(df)
+    df = calc_dynamic_tp2(df)
+    df = entry_signal_always_on(df, mode="alternate")
+    log_ram_usage("before_execute_backtest")
+    trades = _execute_backtest_aggressive(df)
+    analyze_tradelog(trades, globals().get("_LAST_EQUITY_DF", pd.DataFrame()))
+    return trades
+
+
+def _execute_backtest_aggressive(df):
+    df = df.dropna(subset=["atr", "ema_fast", "ema_slow", "rsi"]).reset_index(drop=True)
+    capital = initial_capital
+    oms = OMSManager(capital, kill_switch_dd, lot_max)
+    trades = []
+    equity_curve = []
+    position = None
+    last_entry_idx = -cooldown_bars
+
+    for i, row in df.iterrows():
+        equity_curve.append({
+            "timestamp": row["timestamp"],
+            "equity": capital,
+            "dd": (oms.peak - capital) / oms.peak,
+        })
+        if oms.kill_switch:
+            logger.info("[Patch] OMS: Stop trading (kill switch)")
+            break
+
+        if (
+            position is None
+            and row["entry_signal"] in ["buy", "sell"]
+            and (i - last_entry_idx) >= cooldown_bars
+        ):
+            direction = row["entry_signal"]
+            atr = max(row["atr"], min_sl_dist)
+            entry = row["close"]
+            sl = entry - atr * sl_mult if direction == "buy" else entry + atr * sl_mult
+            tp1 = entry + atr * tp1_mult if direction == "buy" else entry - atr * tp1_mult
+            tp2_mult_now = row.get("tp2_dynamic", tp2_mult)
+            tp2 = entry + atr * tp2_mult_now if direction == "buy" else entry - atr * tp2_mult_now
+            risk_amount = capital * risk_per_trade
+            lot = calc_aggressive_lot(capital, abs(entry - sl))
+            entry, sl, tp1, tp2, com = apply_order_costs(entry, sl, tp1, tp2, lot, direction)
+            mode = "AGGRESSIVE"
+            position = {
+                "entry_time": row["timestamp"],
+                "type": direction,
+                "entry": entry,
+                "sl": sl,
+                "tp1": tp1,
+                "tp2": tp2,
+                "lot": lot,
+                "tp1_hit": False,
+                "breakeven": False,
+                "entry_idx": i,
+                "reason_entry": "[Patch] AggressiveEntry",
+                "mode": mode,
+                "risk": risk_amount,
+                "context": "",
+                "dd_at_entry": (oms.peak - capital) / oms.peak,
+                "peak_equity": oms.peak,
+                "commission": com,
+            }
+            last_entry_idx = i
+            logger.info(
+                "[Patch] Aggressive Entry: %s at %.2f, SL %.2f, TP1 %.2f, TP2 %.2f, Lot %.3f",
+                direction,
+                entry,
+                sl,
+                tp1,
+                tp2,
+                lot,
+            )
+
+        if position:
+            hit_tp1 = (row["high"] >= position["tp1"] if position["type"] == "buy" else row["low"] <= position["tp1"])
+            hit_tp2 = (row["high"] >= position["tp2"] if position["type"] == "buy" else row["low"] <= position["tp2"])
+            hit_sl = (row["low"] <= position["sl"] if position["type"] == "buy" else row["high"] >= position["sl"])
+
+            if not position["tp1_hit"] and hit_tp1:
+                pnl = position["lot"] * abs(position["tp1"] - position["entry"]) * 0.5
+                capital += pnl
+                position["sl"] = position["entry"]
+                position["tp1_hit"] = True
+                position["breakeven"] = True
+                trades.append({
+                    **position,
+                    "exit_time": row["timestamp"],
+                    "exit": "TP1",
+                    "pnl": pnl,
+                    "capital": capital,
+                    "reason_exit": "Partial TP1",
+                    "commission": position.get("commission", 0),
+                    "spread": SPREAD_VALUE,
+                    "slippage": SLIPPAGE,
+                })
+                logger.info("[Patch] Partial TP1 at %.2f (+%.2f$)", position["tp1"], pnl)
+                continue
+
+            if hit_tp2:
+                pnl = position["lot"] * abs(position["tp2"] - position["entry"]) * (0.5 if position["tp1_hit"] else 1) - position.get("commission", 0)
+                capital += pnl
+                trades.append({
+                    **position,
+                    "exit_time": row["timestamp"],
+                    "exit": "TP2",
+                    "pnl": pnl,
+                    "capital": capital,
+                    "reason_exit": "TP2",
+                    "commission": position.get("commission", 0),
+                    "spread": SPREAD_VALUE,
+                    "slippage": SLIPPAGE,
+                })
+                logger.info("[Patch] TP2 at %.2f (+%.2f$)", position["tp2"], pnl)
+                position = None
+                continue
+
+            if hit_sl:
+                pnl = -position["lot"] * abs(position["entry"] - position["sl"]) - position.get("commission", 0)
+                capital += pnl
+                trades.append({
+                    **position,
+                    "exit_time": row["timestamp"],
+                    "exit": "SL",
+                    "pnl": pnl,
+                    "capital": capital,
+                    "reason_exit": "SL/BE",
+                    "commission": position.get("commission", 0),
+                    "spread": SPREAD_VALUE,
+                    "slippage": SLIPPAGE,
+                })
+                logger.info("[Patch] SL/BE at %.2f (%.2f$)", position["sl"], pnl)
+                position = None
+                continue
+
+    df_trades = pd.DataFrame(trades)
+    df_equity = pd.DataFrame(equity_curve)
+    if df_equity.empty:
+        df_equity = pd.DataFrame({"timestamp": [], "equity": [], "dd": []})
+    now_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+    trade_log_path = os.path.join(TRADE_DIR, f"trade_log_{now_str}.csv")
+    equity_curve_path = os.path.join(TRADE_DIR, f"equity_curve_{now_str}.csv")
+    df_trades.to_csv(trade_log_path, index=False)
+    df_equity.to_csv(equity_curve_path, index=False)
+    logger.info("[Patch] Saved trade log: %s", trade_log_path)
+    logger.info("[Patch] Saved equity curve: %s", equity_curve_path)
+    globals()["_LAST_EQUITY_DF"] = df_equity
+
+    log_ram_usage("after_execute_backtest")
+
+    print("Final Equity:", round(capital, 2))
+    print("Total Trades:", len(df_trades))
+    print(
+        "Total Return: {:.2f}%".format(
+            (capital - initial_capital) / initial_capital * 100
+        )
+    )
+    print(
+        "Winrate: {:.2f}%".format(
+            (df_trades["pnl"] > 0).mean() * 100 if not df_trades.empty else 0
+        )
+    )
+    if not df_trades.empty:
+        print(
+            df_trades[
+                [
+                    "entry_time",
+                    "type",
+                    "entry",
+                    "exit",
+                    "pnl",
+                    "capital",
+                    "reason_entry",
+                    "reason_exit",
+                ]
+            ].tail(12)
+        )
+    max_equity = df_equity["equity"].max()
+    min_equity = df_equity["equity"].min()
+    print(f"[Patch] Max Equity: {max_equity:.2f} | Min Equity: {min_equity:.2f}")
+    max_dd = df_equity["dd"].max()
+    print(f"[Patch] Max Drawdown: {max_dd*100:.2f}%")
+
+    return df_trades
+
+
 if __name__ == "__main__":
-    run_backtest()
+    run_backtest_aggressive()

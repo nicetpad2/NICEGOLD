@@ -432,3 +432,9 @@
 ### Changed
 - `_execute_backtest` ใช้ Adaptive Entry แบบ strict เมื่อแพ้ต่อเนื่อง >= 4
 - ปรับ Trailing SL หลัง TP1 ให้ทำงานเมื่อ ADX สูง
+
+## [v1.9.65] — 2025-08-01
+### Added
+- โหมด Aggressive Entry สลับ buy/sell ทุกแท่ง
+### Changed
+- ปรับ risk_per_trade เป็น 4% และลด min_sl_dist เหลือ 2 จุด
