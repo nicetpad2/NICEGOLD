@@ -60,3 +60,9 @@
 - เพิ่ม debug log แสดงสถานะขณะถือ position ใน `_execute_backtest`
 - บันทึกค่า hit TP/SL เพื่อช่วยตรวจสอบ logic
 - ปิดสถานะอัตโนมัติเมื่อถือครบ 50 แท่ง
+
+## v3.16 QA Patch
+- ปรับ `apply_order_costs` ให้บวกสเปรดเฉพาะราคาเข้า ไม่ปรับ SL/TP
+- ลด `risk_per_trade` และขยาย `sl_mult`/`min_sl_dist`
+- กรอง ATR หากต่ำกว่า `spread x2` ไม่เปิดสถานะ
+- เพิ่ม debug log รายไม้และ fail-safe หยุดแบ็กเทสต์เมื่อขาดทุน 20% ใน 3 ไม้แรก

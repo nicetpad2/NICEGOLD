@@ -306,14 +306,35 @@ class TestDynamicTP2Session(unittest.TestCase):
             }
         )
         trades = enterprise._execute_backtest(df)
-        for f in os.listdir("."):  # cleanup
+        for f in os.listdir("."):
             if f.startswith("trade_log_") or f.startswith("equity_curve_"):
                 os.remove(f)
-        for f in os.listdir("."):  # cleanup
+        self.assertTrue(trades.empty)
+
+    def test_atr_filter_skip_trade(self):
+        enterprise.TRADE_DIR = "."
+        df = pd.DataFrame(
+            {
+                "timestamp": pd.date_range("2020-01-01", periods=3, freq="min"),
+                "open": [1.0, 1.0, 1.0],
+                "high": [1.0, 1.0, 1.0],
+                "low": [1.0, 1.0, 1.0],
+                "close": [1.0, 1.0, 1.0],
+                "ema_fast": [2, 2, 2],
+                "ema_slow": [1, 1, 1],
+                "rsi": [60, 60, 60],
+                "adx": [20, 20, 20],
+                "atr": [enterprise.SPREAD_VALUE * 1.5] * 3,
+                "entry_signal": ["buy", None, None],
+                "tp2_dynamic": [1.5, 1.5, 1.5],
+                "atr_long": [1.0, 1.0, 1.0],
+            }
+        )
+        trades = enterprise._execute_backtest(df)
+        for f in os.listdir("."):
             if f.startswith("trade_log_") or f.startswith("equity_curve_"):
                 os.remove(f)
-        expected_tp2 = 1 + enterprise.SPREAD_VALUE + 2.0 * 1.5
-        self.assertAlmostEqual(trades["tp2"].iloc[0], expected_tp2)
+        self.assertTrue(trades.empty)
 
     def test_execute_backtest_debug_strings(self):
         import inspect
@@ -391,6 +412,9 @@ class TestSpikeNewsGuard(unittest.TestCase):
             1.0, 0.9, 1.1, 1.2, 0.1, "buy", spread=0.1, commission=0.1, slippage=0.0
         )
         self.assertGreater(entry, 1.0)
+        self.assertAlmostEqual(sl, 0.9)
+        self.assertAlmostEqual(tp1, 1.1)
+        self.assertAlmostEqual(tp2, 1.2)
         self.assertAlmostEqual(com, 2 * 0.1 * 0.1 * 100)
 
     def test_oms_audit_and_check(self):

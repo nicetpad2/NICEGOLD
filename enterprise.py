@@ -17,11 +17,11 @@ M15_PATH = "/content/drive/MyDrive/NICEGOLD/XAUUSD_M15.csv"
 
 # [Patch] Parameters – MM & Growth
 initial_capital = 100.0
-risk_per_trade = 0.06  # [Patch] เพิ่มความเสี่ยง (6%)
+risk_per_trade = 0.01  # [Patch] ลดความเสี่ยงต่อไม้เหลือ 1%
 tp1_mult = 0.9  # [Patch] ปรับ TP1 แคบขึ้นเพื่อเก็บกำไรบางส่วนเร็วขึ้น
 tp2_mult = 3.0  # [Patch] TP2 ต่ำลง, เน้นยิงไวออกไว
-sl_mult = 1.0
-min_sl_dist = 2.0
+sl_mult = 1.5  # [Patch] ขยับ SL ให้กว้างขึ้น
+min_sl_dist = 3.0  # [Patch] ระยะ SL ขั้นต่ำกว้างขึ้น
 lot_max = 5.0  # [Patch] ปลดลิมิตให้สามารถปั้นพอร์ตโต
 lot_cap_500 = 0.5
 lot_cap_2000 = 1.0
@@ -808,19 +808,16 @@ def apply_order_costs(
     commission=COMMISSION_PER_LOT,
     slippage=SLIPPAGE,
 ):
-    """[Patch] ปรับราคาเข้า/TP/SL ตาม spread, slippage และ commission"""
+    """[Patch] Realistic spread/commission/slippage"""
+    spread_half = spread / 2
+    slip = np.random.uniform(-slippage, slippage)
     if direction == "buy":
-        entry_adj = entry + spread + np.random.uniform(-slippage, slippage)
-        sl_adj = sl + spread
-        tp1_adj = tp1 + spread
-        tp2_adj = tp2 + spread
+        entry_adj = entry + spread_half + slip
     else:
-        entry_adj = entry - spread - np.random.uniform(-slippage, slippage)
-        sl_adj = sl - spread
-        tp1_adj = tp1 - spread
-        tp2_adj = tp2 - spread
+        entry_adj = entry - spread_half - slip
+    # SL/TP ไม่ควรบวก spread อีก
     com = 2 * commission * lot * 100
-    return entry_adj, sl_adj, tp1_adj, tp2_adj, com
+    return entry_adj, sl, tp1, tp2, com
 
 
 def _execute_backtest(df):
@@ -862,6 +859,8 @@ def _execute_backtest(df):
                 continue
             if direction == "sell" and lower_wick_ratio > 0.80:
                 continue
+            if row["atr"] < SPREAD_VALUE * 2:
+                continue  # [Patch] ATR ต่ำกว่า spread x2 ไม่เทรด
             atr = max(row["atr"], min_sl_dist)
             entry = row["close"]
             sl = entry - atr * sl_mult if direction == "buy" else entry + atr * sl_mult
@@ -932,6 +931,18 @@ def _execute_backtest(df):
                 SLIPPAGE,
                 com,
             )
+            logger.info(
+                "[Patch][Debug] Entry=%.2f, SL=%.2f, TP1=%.2f, TP2=%.2f, ATR=%.2f, Spread=%.2f, Slippage=%.2f, Lot=%.3f, Com=%.2f",
+                entry,
+                sl,
+                tp1,
+                tp2,
+                row["atr"],
+                SPREAD_VALUE,
+                SLIPPAGE,
+                lot,
+                com,
+            )
 
         if position:
             logger.debug(
@@ -997,6 +1008,11 @@ def _execute_backtest(df):
                 )
                 oms.update(capital, pnl > 0)
                 position = None
+                if len(trades) <= 3 and capital < initial_capital * 0.8:
+                    logger.warning(
+                        "[Patch][Debug] Stop - Too fast loss in first 3 trades, Check spread/sl/lot/commission logic!"
+                    )
+                    break
                 continue
 
             # Partial TP1
@@ -1073,6 +1089,11 @@ def _execute_backtest(df):
                 logger.info("[Patch] TP2 at %.2f (+%.2f$)", position["tp2"], pnl)
                 oms.update(capital, pnl > 0)
                 position = None
+                if len(trades) <= 3 and capital < initial_capital * 0.8:
+                    logger.warning(
+                        "[Patch][Debug] Stop - Too fast loss in first 3 trades, Check spread/sl/lot/commission logic!"
+                    )
+                    break
                 continue
 
             # Stop Loss / Breakeven
@@ -1108,6 +1129,11 @@ def _execute_backtest(df):
                 logger.info("[Patch] SL/BE at %.2f (%.2f$)", position["sl"], pnl)
                 oms.update(capital, pnl > 0)
                 position = None
+                if len(trades) <= 3 and capital < initial_capital * 0.8:
+                    logger.warning(
+                        "[Patch][Debug] Stop - Too fast loss in first 3 trades, Check spread/sl/lot/commission logic!"
+                    )
+                    break
                 continue
 
             # Trailing SL after TP1
