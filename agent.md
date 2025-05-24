@@ -42,3 +42,8 @@
 ## v3.11 QA Patch
 - เพิ่มฟังก์ชัน `calc_dynamic_tp2`, `tag_session` และ `apply_session_bias`
 - ปรับ backtest pipeline ใช้ Dynamic TP2 และ Session Bias
+
+## v3.12 QA Patch
+- เพิ่มระบบ Spike Guard และ News Filter
+- บันทึก Reason/Context ลง trade log อย่างละเอียด
+- ฟังก์ชัน Walk-Forward Validation และ split folds อัตโนมัติ
