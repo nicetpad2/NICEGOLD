@@ -6,6 +6,8 @@ from datetime import datetime, timedelta
 from dataclasses import dataclass
 from typing import Optional
 import logging
+import json
+from itertools import product
 try:
     import psutil  # สำหรับเช็ค RAM
 except Exception:  # pragma: no cover - optional dependency
@@ -2255,5 +2257,160 @@ def run_walkforward_backtest(df, n_folds=5, config_list=None):
     return fold_results
 
 
+# [Patch] Add WFA param grid
+def param_grid():
+    logger.debug("[Patch WFA] Generating parameter grid")
+    grid = {
+        "risk_per_trade": [0.02, 0.03],
+        "force_entry_gap": [100, 150],
+        "partial_close_pct": [0.5, 0.6],
+        "trail_stop_mult": [0.4, 0.6],
+        "lot_max": [5.0, 10.0],
+    }
+    keys, values = zip(*grid.items())
+    return [dict(zip(keys, v)) for v in product(*values)]
+
+
+# [Patch] WFA Param Optimizer
+def optimize_params(df):
+    logger.debug("[Patch WFA] Optimizing parameters")
+    best_score = -np.inf
+    best_params = None
+    for params in param_grid():
+        try:
+            result = run_backtest_custom(df.copy(), params)
+            score = (
+                result.get("Total Return", 0)
+                + 0.5 * result.get("Winrate", 0)
+                - 1000 * result.get("max_drawdown", 0)
+                + 0.1 * result.get("Total Trades", 0)
+            )
+            if score > best_score:
+                best_score = score
+                best_params = params
+        except Exception as e:  # pragma: no cover - safety
+            logger.warning("[Patch WFA] Failed param combo: %s => %s", params, e)
+    logger.info("[Patch WFA] Best params: %s", best_params)
+    return best_params
+
+
+# [Patch] Run backtest with custom param set
+def run_backtest_custom(df, params):
+    logger.debug("[Patch WFA] run_backtest_custom with %s", params)
+    global risk_per_trade, force_entry_gap, partial_close_pct, trail_stop_mult, lot_max
+    risk_per_trade = params.get("risk_per_trade", risk_per_trade)
+    force_entry_gap = params.get("force_entry_gap", force_entry_gap)
+    partial_close_pct = params.get("partial_close_pct", partial_close_pct)
+    trail_stop_mult = params.get("trail_stop_mult", trail_stop_mult)
+    lot_max = params.get("lot_max", lot_max)
+    df = data_quality_check(df)
+    df = calc_indicators(df)
+    df = calc_dynamic_tp2(df)
+    df = label_elliott_wave(df)
+    df = detect_divergence(df)
+    df = label_pattern(df)
+    df = calc_gain_zscore(df)
+    df = calc_signal_score(df)
+    df, _ = shap_feature_importance_placeholder(df)
+    df = tag_session(df)
+    df = tag_spike_guard(df)
+    df = tag_news_event(df)
+    df = smart_entry_signal_goldai2025_style(df)
+    df = apply_session_bias(df)
+    df = apply_spike_news_guard(df)
+    trades = _execute_backtest(df)
+    equity = globals().get("_LAST_EQUITY_DF", pd.DataFrame())
+    stats = analyze_tradelog(trades, equity)
+    final_eq = equity["equity"].iloc[-1] if not equity.empty else initial_capital
+    total_return = final_eq - initial_capital
+    winrate = (trades["pnl"] > 0).mean() * 100 if not trades.empty else 0
+    return {
+        "Final Equity": final_eq,
+        "Total Return": total_return,
+        "Winrate": winrate,
+        "Total Trades": len(trades),
+        **stats,
+    }
+
+
+# [Patch] Save SHAP summary
+def save_shap_summary(df, fold_id):
+    logger.debug("[Patch WFA] Saving SHAP summary for fold %d", fold_id)
+    shap_cols = [c for c in df.columns if c.startswith("shap_importance_")]
+    summary = {c.replace("shap_importance_", ""): df[c].mean() for c in shap_cols}
+    with open(f"shap_summary_fold_{fold_id}.json", "w") as f:
+        json.dump(summary, f, indent=2)
+    logger.info("[Patch] SHAP summary saved for Fold %d", fold_id)
+
+
+# [Patch] Walk-Forward Analysis Runner
+def walk_forward_run(path, fold_days=30):
+    logger.info("[Patch WFA] walk_forward_run on %s", path)
+    df = pd.read_csv(path)
+    df["entry_time"] = pd.to_datetime(df["entry_time"])
+    df = df.sort_values("entry_time")
+    start = df["entry_time"].min()
+    end = df["entry_time"].max()
+    all_results = []
+    fold_id = 0
+    while start < end:
+        fold_id += 1
+        fold_end = start + timedelta(days=fold_days)
+        fold_df = df[(df["entry_time"] >= start) & (df["entry_time"] < fold_end)].copy()
+        if fold_df.empty:
+            break
+        logger.info(
+            "[Patch WFA] Fold %d: %s -> %s",
+            fold_id,
+            start.date(),
+            fold_end.date(),
+        )
+        try:
+            best_params = optimize_params(fold_df)
+            result = run_backtest_custom(fold_df.copy(), best_params)
+            result["Fold"] = f"{start.date()} → {fold_end.date()}"
+            if best_params:
+                result.update(best_params)
+            all_results.append(result)
+            save_shap_summary(fold_df, fold_id)
+        except Exception as e:  # pragma: no cover - safety
+            logger.error("[Patch WFA] Error in Fold %d: %s", fold_id, e)
+        start = fold_end
+    summary = pd.DataFrame(all_results)
+    summary.to_csv("wfa_summary_results.csv", index=False)
+    try:
+        plt.figure(figsize=(12, 6))
+        plt.plot(summary["Fold"], summary["Final Equity"], marker="o", label="Equity")
+        plt.plot(summary["Fold"], summary["Total Return"], marker="x", label="Return")
+        plt.xticks(rotation=45)
+        plt.grid(True)
+        plt.title("WFA Fold Results")
+        plt.tight_layout()
+        plt.legend()
+        plt.savefig("wfa_equity_plot.png")
+        logger.info("[Patch WFA] Plot saved")
+    except Exception as e:  # pragma: no cover - optional
+        logger.warning("[Patch WFA] Plot failed: %s", e)
+    print("✅ Walk Forward Analysis Complete")
+
+
+# [Patch] CLI Menu
+def main():
+    print("\n👉 Select Mode:")
+    print("  [1] Walk Forward Analysis (WFA)")
+    print("  [2] Basic Backtest")
+    print("  [3] Multi-TF Backtest")
+    mode = input("Enter mode number: ").strip()
+    file_input = input("CSV file path (default: trade_log.csv): ").strip() or "trade_log.csv"
+    if mode == "1":
+        walk_forward_run(file_input)
+    elif mode == "2":
+        run_backtest(file_input)
+    elif mode == "3":
+        run_backtest_multi_tf()
+    else:
+        print("❌ Invalid mode")
+
+
 if __name__ == "__main__":
-    run_backtest()
+    main()

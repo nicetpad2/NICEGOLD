@@ -134,3 +134,6 @@
 
 ## v3.29 QA Patch
 - เพิ่มโมดูล `walk_forward_engine.py` สำหรับ Walk Forward Analysis และบันทึก log แบบละเอียด
+
+## v3.30 QA Patch
+- รวมระบบ Walk Forward Analysis เข้า enterprise.py และเพิ่มเมนู CLI เลือกโหมด
