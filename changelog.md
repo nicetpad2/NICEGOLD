@@ -362,3 +362,12 @@
 - เพิ่มกลยุทธ์ `multi_session_trend_scalping` และปรับ pipeline backtest
 - กรอง ATR ต่ำกว่า `spread x2.0` ไม่เข้าเทรด
 - เพิ่ม unit test และ log ครบถ้วน
+
+## [v1.9.55] — 2025-07-25
+### Added
+- กลยุทธ์ `smart_entry_signal_multi_tf_ema_adx` ใช้ EMA Fast/Slow, ADX, RSI และ Wick filter
+- ฟังก์ชัน `calc_adaptive_lot` ปรับขนาด lot ตาม ADX/Recovery/WinStreak
+- `on_price_update_patch` สำหรับ Partial TP และ Trailing SL
+- ปรับปรุง `OMSManager` ตรวจสอบความถี่การเทรดและปิด Recovery เมื่อทุนกลับคืน
+- เพิ่ม `qa_validate_backtest` สำหรับ QA Validation หลังแบ็กเทสต์
+- เพิ่ม unit tests ครอบคลุมฟีเจอร์ใหม่

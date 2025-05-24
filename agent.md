@@ -79,3 +79,9 @@
 - ปรับ risk management (tp1_mult=2.0, tp2_mult=4.0, sl_mult=1.2, min_sl_dist=4)
 - เพิ่มฟังก์ชัน `multi_session_trend_scalping` และใช้ใน pipeline `run_backtest`
 - บันทึกจำนวนสัญญาณเข้าออเดอร์แบบละเอียด
+
+## v3.19 QA Patch
+- เพิ่มฟังก์ชัน `smart_entry_signal_multi_tf_ema_adx` สำหรับกลยุทธ์ Multi-TF + EMA + ADX
+- เพิ่ม `calc_adaptive_lot` และ `on_price_update_patch`
+- อัปเดต `OMSManager` ให้ตรวจสอบความถี่การเปิดออเดอร์และปิด Recovery เมื่อทุนกลับคืน
+- เพิ่ม `qa_validate_backtest` ตรวจสอบกำไร ≥ $15, ออเดอร์ ≥ 15 และ DD ไม่เกิน kill switch
