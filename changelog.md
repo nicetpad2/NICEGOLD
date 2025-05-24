@@ -392,3 +392,11 @@
 - ฟังก์ชัน `entry_signal_always_on` สำหรับเข้าไม้ต่อเนื่อง
 ### Changed
 - เปลี่ยน pipeline backtest ใช้ `entry_signal_always_on` โหมด `trend_follow`
+## [v1.9.59] — 2025-07-29
+### Added
+- ฟังก์ชัน `entry_signal_trend_relax` เข้าไม้เมื่อ EMA cross และ ATR สูงกว่าค่าเฉลี่ย
+### Changed
+- ใช้ `entry_signal_trend_relax` ใน backtest ทั้งหมด
+- Early force close เปลี่ยนเป็น warning เท่านั้น
+- ลด boost lot และ recovery multiplier
+

@@ -479,6 +479,21 @@ class TestSpikeNewsGuard(unittest.TestCase):
         res = enterprise.entry_signal_always_on(df, mode="trend_follow")
         self.assertEqual(res["entry_signal"].tolist(), ["buy", "sell"])
 
+    def test_entry_signal_trend_relax_basic(self):
+        df = pd.DataFrame(
+            {
+                "timestamp": pd.date_range("2020-01-01", periods=4, freq="min"),
+                "ema_fast": [1, 2, 1, 2],
+                "ema_slow": [2, 1, 2, 1],
+                "high": [1.1, 1.2, 1.1, 1.2],
+                "low": [0.9, 0.8, 0.9, 0.8],
+                "atr": [0.2, 0.3, 0.4, 0.5],
+            }
+        )
+        res = enterprise.entry_signal_trend_relax(df, min_gap_minutes=0)
+        self.assertIn("entry_signal", res.columns)
+        self.assertTrue(res["entry_signal"].notna().any())
+
     def test_constants_values(self):
         self.assertEqual(enterprise.COMMISSION_PER_LOT, 0.10)
         self.assertEqual(enterprise.SLIPPAGE, 0.2)

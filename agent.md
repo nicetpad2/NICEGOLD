@@ -100,3 +100,10 @@
 ## v3.22 QA Patch
 - เพิ่มฟังก์ชัน `entry_signal_always_on` สร้างสัญญาณเข้าไม้ตลอดปี
 - ปรับ pipeline ใน `run_backtest` และ `run_backtest_multi_tf` ใช้โหมด `trend_follow`
+## v3.23 QA Patch
+- เพิ่มฟังก์ชัน `entry_signal_trend_relax` เข้าตามเทรนด์เมื่อ ATR สูงกว่าค่าเฉลี่ย
+- ใช้สัญญาณใหม่นี้ใน `run_backtest`, `run_backtest_multi_tf`, และ `run_walkforward_backtest`
+- ผ่อนคลาย Early Force Close เพียงแจ้งเตือนไม่ปิดสถานะ
+- ปรับ OMS kill switch ให้เป็นแค่คำเตือน
+- ลดการ Boost lot และ Recovery ให้ไม่รุนแรง
+

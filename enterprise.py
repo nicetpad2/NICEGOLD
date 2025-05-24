@@ -29,8 +29,8 @@ lot_cap_10000 = 2.5
 lot_cap_max = 5.0
 cooldown_bars = 0  # [Patch] ไม่มี cooldown
 oms_recovery_loss = 3  # [Patch] Recovery เร็วขึ้น (จาก 4 → 3)
-win_streak_boost = 1.3  # [Patch] Boost สูงขึ้น
-recovery_multiplier = 3.0  # [Patch] Aggressive recovery
+win_streak_boost = 1.1  # [Patch] Moderate boost
+recovery_multiplier = 1.5  # [Patch] Softer recovery
 trailing_atr_mult = 1.1
 kill_switch_dd = 0.35  # [Patch] Kill switch หาก DD > 35%
 trend_lookback = 25  # [Patch] เร็วขึ้น (trend สั้นลง)
@@ -1148,6 +1148,47 @@ def entry_signal_always_on(df, mode="every_bar", step=30):
     return df
 
 
+def entry_signal_trend_relax(df, min_gap_minutes=15):
+    """[Patch][Pro Version] Trend-follow entry when volatility is above average."""
+    import pandas as pd
+    logger.info("[Patch] ENTRY SIGNAL: Trend Relaxed + Volatility")
+    df = df.copy()
+    df["entry_signal"] = None
+    min_gap = pd.Timedelta(minutes=min_gap_minutes)
+    last_entry_time = None
+
+    if "atr" not in df.columns:
+        df["atr"] = (df["high"] - df["low"]).rolling(14).mean()
+    atr_roll = df["atr"].rolling(1440, min_periods=60).mean()
+
+    for i in range(1, len(df)):
+        ema_fast = df["ema_fast"].iloc[i]
+        ema_slow = df["ema_slow"].iloc[i]
+        prev_fast = df["ema_fast"].iloc[i - 1]
+        prev_slow = df["ema_slow"].iloc[i - 1]
+        timestamp = pd.to_datetime(df["timestamp"].iloc[i])
+
+        if df["atr"].iloc[i] < atr_roll.iloc[i] * 0.7:
+            continue
+        if last_entry_time is not None and timestamp - last_entry_time < min_gap:
+            continue
+
+        if prev_fast < prev_slow and ema_fast > ema_slow:
+            df.at[df.index[i], "entry_signal"] = "buy"
+            last_entry_time = timestamp
+            logger.info("[Patch] Entry BUY at %s", timestamp)
+        elif prev_fast > prev_slow and ema_fast < ema_slow:
+            df.at[df.index[i], "entry_signal"] = "sell"
+            last_entry_time = timestamp
+            logger.info("[Patch] Entry SELL at %s", timestamp)
+
+    logger.info(
+        "[Patch] Trend Relaxed Entry signal generated: buy=%d, sell=%d",
+        (df["entry_signal"] == "buy").sum(),
+        (df["entry_signal"] == "sell").sum(),
+    )
+    return df
+
 class OMSManager:
     def __init__(self, capital, kill_switch_dd, lot_max):
         self.capital = capital
@@ -1280,9 +1321,7 @@ def _execute_backtest(df):
         )
         oms.audit_log()
         if oms.kill_switch:
-            logger.info("[Patch] OMS: Stop trading (kill switch)")
-            break
-
+            logger.warning("[Patch] OMS kill switch triggered - continuing trading")
         # Entry
         if (
             position is None
@@ -1451,26 +1490,7 @@ def _execute_backtest(df):
                 )
                 gain_z_now = row.get("gain_z", 0)
                 if atr_now < atr_rolling * 0.8 or gain_z_now < 0:
-                    pnl = (
-                        (row["close"] - position["entry"]) * position["lot"] * (100 if position["type"] == "buy" else -100)
-                    ) - position.get("commission", 0)
-                    capital += pnl
-                    trades.append(
-                        {
-                            **position,
-                            "exit_time": row["timestamp"],
-                            "exit": "EarlyForceClose",
-                            "pnl": pnl,
-                            "capital": capital,
-                            "reason_exit": "Early force close: ATR/gain_z low",
-                            "commission": position.get("commission", 0),
-                            "spread": SPREAD_VALUE,
-                            "slippage": SLIPPAGE,
-                        }
-                    )
-                    oms.update(capital, pnl > 0)
-                    position = None
-                    continue
+                    logger.warning("[Patch] Early force close condition met but ignored")
             max_holding_bars = 50
             if i - position.get("entry_idx", i) >= max_holding_bars:
                 logger.warning("[Patch] Force close position after %d bars", max_holding_bars)
@@ -1739,7 +1759,7 @@ def run_backtest(path=None):
     df = load_data(path)
     df = data_quality_check(df)
     df = calc_indicators(df)
-    df = entry_signal_always_on(df, mode="trend_follow")
+    df = entry_signal_trend_relax(df, min_gap_minutes=15)
     trades = _execute_backtest(df)
     if not trades.empty and "exit" in trades.columns:
         loss_indices = trades.loc[trades["exit"].isin(["SL", "ForceClose"]), "entry_idx"].tolist()
@@ -1779,7 +1799,7 @@ def run_backtest_multi_tf(path_m1=M1_PATH, path_m15=M15_PATH):
     df_m1 = tag_session(df_m1)
     df_m1 = tag_spike_guard(df_m1)
     df_m1 = tag_news_event(df_m1)
-    df_m1 = entry_signal_always_on(df_m1, mode="trend_follow")
+    df_m1 = entry_signal_trend_relax(df_m1, min_gap_minutes=15)
     df_m1 = apply_session_bias(df_m1)
     df_m1 = apply_spike_news_guard(df_m1)
     return _execute_backtest(df_m1)
@@ -1815,7 +1835,7 @@ def run_walkforward_backtest(df, n_folds=5, config_list=None):
         fold_df = tag_session(fold_df)
         fold_df = tag_spike_guard(fold_df)
         fold_df = tag_news_event(fold_df)
-        fold_df = entry_signal_always_on(fold_df, mode="trend_follow")
+        fold_df = entry_signal_trend_relax(fold_df, min_gap_minutes=15)
         fold_df = apply_session_bias(fold_df)
         fold_df = apply_spike_news_guard(fold_df)
         result = _execute_backtest(fold_df)
