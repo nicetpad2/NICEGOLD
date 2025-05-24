@@ -2399,19 +2399,19 @@ def walk_forward_run(path, fold_days=30):
 def main():
     print("\n👉 Select Mode:")
     print("  [1] Walk Forward Analysis (WFA)")
-    print("  [2] Basic Backtest")
-    print("  [3] Multi-TF Backtest")
+    print("  [2] Multi-TF Backtest")
     mode = input("Enter mode number: ").strip()
     file_input = input("CSV file path (default: trade_log.csv): ").strip() or "trade_log.csv"
+    logger.debug("[CLI] Selected mode=%s file=%s", mode, file_input)
     if mode == "1":
         walk_forward_run(file_input)
     elif mode == "2":
-        run_backtest(file_input)
-    elif mode == "3":
         run_backtest_multi_tf()
     else:
         print("❌ Invalid mode")
 
 
 if __name__ == "__main__":
-    main()
+    # [Patch H] Default = Walk-Forward Validation
+    logger.debug("[Patch H] auto-start walk_forward_run")
+    walk_forward_run("trade_log.csv")

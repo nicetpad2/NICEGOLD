@@ -489,3 +489,8 @@
 ### Changed
 - [Patch G] ปรับ smart_entry_signal_enterprise_v1 ลด gain_z threshold และเพิ่มเงื่อนไข wave_phase="mid" พร้อมลด force_entry_gap เป็น 50 และปิด QA Entry Drop Guard
 
+## [v1.9.74] — 2025-08-10
+### Changed
+- ปรับเมนู CLI เหลือสองตัวเลือก (WFA, Multi-TF) และเรียก `walk_forward_run` เป็นค่าเริ่มต้น
+- เพิ่ม debug log ในฟังก์ชัน `main` และบล็อก `__main__`
+
