@@ -90,3 +90,9 @@
 - เพิ่มฟังก์ชัน `smart_entry_signal_multi_tf_ema_adx_optimized` ปรับตัวกรอง Momentum และ ATR
 - เพิ่ม `on_price_update_patch_v2` รัด Trailing SL หลัง TP1
 - ปรับ `qa_validate_backtest` ตรวจสอบออเดอร์ ≥ 279 และแจ้งเตือนเมื่อ Winrate ลดลง
+
+## v3.21 QA Patch
+- เพิ่ม `patch_confirm_on_lossy_indices` กรองสัญญาณเฉพาะจุดขาดทุนถี่
+- ปรับ force close เร็วหาก ATR หรือ `gain_z` ต่ำหลังถือ 25 แท่ง
+- Recovery mode ลดความเสี่ยงและข้ามไม้เมื่อ momentum ไม่ดี
+- เพิ่ม `analyze_tradelog` สรุปสถิติ win/loss streak และ drawdown

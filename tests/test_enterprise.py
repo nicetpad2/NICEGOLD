@@ -533,6 +533,25 @@ class TestSpikeNewsGuard(unittest.TestCase):
             enterprise.qa_validate_backtest(trades, equity, prev_winrate=1.0, min_trades=1, min_profit=0)
         self.assertTrue(any("Winrate dropped" in m for m in cm.output))
 
+    def test_patch_confirm_on_lossy_indices(self):
+        df = pd.DataFrame({
+            "timestamp": pd.date_range("2020-01-01", periods=3, freq="min"),
+            "entry_signal": ["buy", "sell", None],
+            "divergence": ["bearish", "bullish", "bullish"],
+            "gain_z": [-1.0, 1.0, 0.5],
+            "atr": [1.0, 1.0, 1.0],
+        })
+        res = enterprise.patch_confirm_on_lossy_indices(df.copy(), [0, 1])
+        self.assertIsNone(res["entry_signal"].iloc[0])
+        self.assertIsNone(res["entry_signal"].iloc[1])
+
+    def test_analyze_tradelog_output_keys(self):
+        trades = pd.DataFrame({"pnl": [1, -1, 2], "entry_idx": [0, 1, 2]})
+        equity = pd.DataFrame({"dd": [0.0, 0.1, 0.05]})
+        stats = enterprise.analyze_tradelog(trades, equity)
+        self.assertIn("max_win_streak", stats)
+        self.assertIn("max_loss_streak", stats)
+
 
 if __name__ == "__main__":
     unittest.main()
