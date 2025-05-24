@@ -2,7 +2,7 @@
 
 
 
-**Version:** v1.9.33
+**Version:** v1.9.34
 
 
 
@@ -149,6 +149,12 @@ agent.export_log(result_df, path="realistic_trade_log.csv")
 - `run_backtest_cli` โหลด CSV ด้วย `low_memory=False` และเรียก `optimize_memory`
 - เพิ่ม `calculate_trend_confirm` ก่อน `generate_smart_signal`
 - แสดงผล RAM ที่ใช้ผ่าน `psutil` ในขั้นตอน QA
+
+### 📝 Patch v1.9.34
+- ปรับพารามิเตอร์ Risk Management & Growth
+- ลด force entry gap เหลือ 200 แท่ง
+- ปรับ trailing SL, recovery multiplier และ kill switch
+- simplify `smart_entry_signal_enterprise_v1`
 
 
 🔧 ROLE: คุณคือ “AI ฝ่าย Dev Algo Trading”
