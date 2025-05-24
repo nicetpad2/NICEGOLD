@@ -539,6 +539,74 @@ def shap_feature_importance_placeholder(
     return df, importances
 
 
+def patch_confirm_on_lossy_indices(df, loss_indices, min_divergence_score=1):
+    """[Patch] เพิ่ม confirm เฉพาะจุด SL/BE ขาดทุนถี่"""
+    logger.info("[Patch] Confirm on lossy indices: %s", loss_indices)
+    for i in loss_indices:
+        if pd.notna(df.at[i, "entry_signal"]):
+            div = df.at[i, "divergence"] if "divergence" in df.columns else None
+            gain_z = df.at[i, "gain_z"] if "gain_z" in df.columns else 0
+            atr = df.at[i, "atr"] if "atr" in df.columns else 0
+            if div is None or (
+                df.at[i, "entry_signal"] == "buy" and div != "bullish"
+            ) or (
+                df.at[i, "entry_signal"] == "sell" and div != "bearish"
+            ):
+                df.at[i, "entry_signal"] = None
+                logger.info(
+                    "[Patch] LossyIndex confirm: remove entry at %s (divergence filter)",
+                    df["timestamp"].iloc[i],
+                )
+            elif gain_z < 0 and df.at[i, "entry_signal"] == "buy":
+                df.at[i, "entry_signal"] = None
+                logger.info(
+                    "[Patch] LossyIndex confirm: remove buy entry at %s (gain_z < 0)",
+                    df["timestamp"].iloc[i],
+                )
+            elif gain_z > 0 and df.at[i, "entry_signal"] == "sell":
+                df.at[i, "entry_signal"] = None
+                logger.info(
+                    "[Patch] LossyIndex confirm: remove sell entry at %s (gain_z > 0)",
+                    df["timestamp"].iloc[i],
+                )
+    return df
+
+
+def analyze_tradelog(trades_df, equity_df):
+    """[Patch] แจกแจง PnL, Win/Loss streak, drawdown"""
+    logger.info("[Patch] Analyze trade log statistics")
+    streaks, streak_val = [], []
+    prev_win = None
+    count = 0
+    for _, row in trades_df.iterrows():
+        win = row["pnl"] > 0
+        if prev_win is None or win == prev_win:
+            count += 1
+        else:
+            streaks.append(count)
+            streak_val.append(prev_win)
+            count = 1
+        prev_win = win
+    if count > 0:
+        streaks.append(count)
+        streak_val.append(prev_win)
+    max_win_streak = max([s for s, v in zip(streaks, streak_val) if v], default=0)
+    max_loss_streak = max([s for s, v in zip(streaks, streak_val) if not v], default=0)
+    mean_pnl = trades_df["pnl"].mean() if not trades_df.empty else 0
+    std_pnl = trades_df["pnl"].std() if not trades_df.empty else 0
+    max_drawdown = equity_df["dd"].max() if not equity_df.empty else 0
+    print(f"[Patch] Max Win Streak: {max_win_streak}, Max Loss Streak: {max_loss_streak}")
+    print(f"[Patch] Mean PnL: {mean_pnl:.2f}, Std PnL: {std_pnl:.2f}")
+    print(f"[Patch] Max Drawdown: {max_drawdown:.2%}")
+    return {
+        "max_win_streak": max_win_streak,
+        "max_loss_streak": max_loss_streak,
+        "mean_pnl": mean_pnl,
+        "std_pnl": std_pnl,
+        "max_drawdown": max_drawdown,
+    }
+
+
 def calc_dynamic_tp2(df, base_tp2_mult=3.0, atr_period=1000, tp2_col="tp2_dynamic"):
     """[Patch] Calculate Dynamic TP2 Multiplier based on volatility regime."""
     logger.info("[Patch] Calculate Dynamic TP2 Multiplier")
@@ -1194,6 +1262,14 @@ def _execute_backtest(df):
                 continue
             if row["atr"] < SPREAD_VALUE * 2.0:
                 continue  # [Patch] ข้ามไม้ตลาดแคบ
+            if oms.recovery_mode:
+                atr_roll = (
+                    df["atr"].rolling(100).mean().iloc[i]
+                    if i >= 1
+                    else df["atr"].iloc[: i + 1].mean()
+                )
+                if row["atr"] < atr_roll * 0.9 or row.get("gain_z", 0) < 0:
+                    continue
             atr = max(row["atr"], min_sl_dist)
             entry = row["close"]
             sl = entry - atr * sl_mult if direction == "buy" else entry + atr * sl_mult
@@ -1212,6 +1288,14 @@ def _execute_backtest(df):
                     risk_amount *= 0.75
                 elif row["atr"] < 0.8 * row["atr_long"]:
                     risk_amount *= 1.15
+            if oms.recovery_mode:
+                atr_roll = (
+                    df["atr"].rolling(100).mean().iloc[i]
+                    if i >= 1
+                    else df["atr"].iloc[: i + 1].mean()
+                )
+                if row["atr"] < atr_roll:
+                    risk_amount *= 0.7
             logger.debug(
                 "[Patch] TP2 mult %.2f, risk amount %.2f", tp2_mult_now, risk_amount
             )
@@ -1319,6 +1403,35 @@ def _execute_backtest(df):
                 hit_sl,
             )
 
+            if i - position.get("entry_idx", i) >= 25:
+                atr_now = row.get("atr", 0)
+                atr_rolling = (
+                    df["atr"].iloc[max(i - 100, 0) : i].mean()
+                    if i > 0
+                    else atr_now
+                )
+                gain_z_now = row.get("gain_z", 0)
+                if atr_now < atr_rolling * 0.8 or gain_z_now < 0:
+                    pnl = (
+                        (row["close"] - position["entry"]) * position["lot"] * (100 if position["type"] == "buy" else -100)
+                    ) - position.get("commission", 0)
+                    capital += pnl
+                    trades.append(
+                        {
+                            **position,
+                            "exit_time": row["timestamp"],
+                            "exit": "EarlyForceClose",
+                            "pnl": pnl,
+                            "capital": capital,
+                            "reason_exit": "Early force close: ATR/gain_z low",
+                            "commission": position.get("commission", 0),
+                            "spread": SPREAD_VALUE,
+                            "slippage": SLIPPAGE,
+                        }
+                    )
+                    oms.update(capital, pnl > 0)
+                    position = None
+                    continue
             max_holding_bars = 50
             if i - position.get("entry_idx", i) >= max_holding_bars:
                 logger.warning("[Patch] Force close position after %d bars", max_holding_bars)
@@ -1493,6 +1606,7 @@ def _execute_backtest(df):
     df_equity.to_csv(equity_curve_path, index=False)
     logger.info("[Patch] Saved trade log: %s", trade_log_path)
     logger.info("[Patch] Saved equity curve: %s", equity_curve_path)
+    globals()["_LAST_EQUITY_DF"] = df_equity
 
     qa_validate_backtest(df_trades, df_equity)
 
@@ -1587,7 +1701,17 @@ def run_backtest(path=None):
     df = data_quality_check(df)
     df = calc_indicators(df)
     df = multi_session_trend_scalping(df)
-    return _execute_backtest(df)
+    trades = _execute_backtest(df)
+    if not trades.empty and "exit" in trades.columns:
+        loss_indices = trades.loc[trades["exit"].isin(["SL", "ForceClose"]), "entry_idx"].tolist()
+    else:
+        loss_indices = []
+    if loss_indices:
+        logger.info("[Patch] Reconfirm on %d lossy indices", len(loss_indices))
+        df = patch_confirm_on_lossy_indices(df, loss_indices)
+        trades = _execute_backtest(df)
+    analyze_tradelog(trades, globals().get("_LAST_EQUITY_DF", pd.DataFrame()))
+    return trades
 
 
 def run_backtest_multi_tf(path_m1=M1_PATH, path_m15=M15_PATH):

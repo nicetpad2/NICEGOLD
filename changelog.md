@@ -378,3 +378,11 @@
 - `on_price_update_patch_v2` เพิ่มการย้าย SL ที่รัดขึ้นหลัง TP1
 ### Changed
 - `qa_validate_backtest` ตรวจสอบออเดอร์ขั้นต่ำ 279 และแจ้งเตือนเมื่อ Winrate ลดลง
+
+## [v1.9.57] — 2025-07-27
+### Added
+- `patch_confirm_on_lossy_indices` ยืนยันสัญญาณเฉพาะตำแหน่งขาดทุนถี่
+- `analyze_tradelog` แสดงสถิติ streak และ drawdown
+### Changed
+- ปิดไม้เร็วหาก ATR/gain_z ต่ำหลังถือ 25 แท่ง
+- Recovery mode ลดความเสี่ยงเมื่อ momentum ไม่ดี
