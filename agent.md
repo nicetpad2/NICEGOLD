@@ -120,3 +120,9 @@
 - apply_session_bias ไม่กรอง session ใด ๆ
 - `_execute_backtest` ข้ามสัญญาณที่ divergence ตรงข้าม
 
+
+## v3.27 QA Patch
+- เปิดโหมด ib_commission_mode เพิ่ม force_entry_gap เป็น 100
+- Partial TP 60% และ trail_stop_mult 0.4
+- เพิ่ม micro SL exit และระบบ re-entry สูงสุด 2 ไม้
+
