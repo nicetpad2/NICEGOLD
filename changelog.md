@@ -306,3 +306,8 @@
 - ฟังก์ชัน `smart_entry_signal_goldai2025_style` สำหรับสร้างสัญญาณเทรดแบบ GoldAI2025
 - ปรับ `run_backtest` และ `run_backtest_multi_tf` ให้ใช้ตรรกะสัญญาณใหม่นี้
 
+## [v1.9.46] — 2025-07-16
+### Added
+- ระบบ Label Elliott Wave, Detect Divergence และ Pattern Tagging
+- ฟังก์ชัน Gain_Zscore, Signal Score และ Meta Classifier
+- ปรับ pipeline ใน run_backtest ให้เรียกใช้โมดูลใหม่

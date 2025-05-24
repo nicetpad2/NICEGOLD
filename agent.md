@@ -34,3 +34,7 @@
 - เพิ่มฟังก์ชัน `smart_entry_signal_goldai2025_style` สำหรับสร้างสัญญาณแบบ GoldAI2025
 - ปรับ `run_backtest` และ `run_backtest_multi_tf` ให้เรียกใช้ฟังก์ชันใหม่
 
+## v3.10 QA Patch
+- เพิ่มฟังก์ชัน label_elliott_wave, detect_divergence, label_pattern
+- เพิ่ม calc_gain_zscore, calc_signal_score และ meta_classifier_filter
+- ปรับ pipeline ใน run_backtest และ run_backtest_multi_tf ให้เรียกใช้โมดูลใหม่
