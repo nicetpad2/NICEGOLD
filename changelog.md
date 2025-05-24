@@ -311,3 +311,10 @@
 - ระบบ Label Elliott Wave, Detect Divergence และ Pattern Tagging
 - ฟังก์ชัน Gain_Zscore, Signal Score และ Meta Classifier
 - ปรับ pipeline ใน run_backtest ให้เรียกใช้โมดูลใหม่
+
+## [v1.9.47] — 2025-07-17
+### Added
+- Dynamic TP2 multiplier and adaptive risk based on ATR regime
+- Session tagging and session-based entry filter
+### Changed
+- Backtest pipelines use dynamic TP2 and session bias

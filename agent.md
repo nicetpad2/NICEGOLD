@@ -38,3 +38,7 @@
 - เพิ่มฟังก์ชัน label_elliott_wave, detect_divergence, label_pattern
 - เพิ่ม calc_gain_zscore, calc_signal_score และ meta_classifier_filter
 - ปรับ pipeline ใน run_backtest และ run_backtest_multi_tf ให้เรียกใช้โมดูลใหม่
+
+## v3.11 QA Patch
+- เพิ่มฟังก์ชัน `calc_dynamic_tp2`, `tag_session` และ `apply_session_bias`
+- ปรับ backtest pipeline ใช้ Dynamic TP2 และ Session Bias
