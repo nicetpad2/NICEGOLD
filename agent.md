@@ -105,3 +105,9 @@
 
 ## v3.24 QA Patch
 - เพิ่มฟังก์ชัน `entry_signal_trend_scalp` ใช้ Trend Scalping พร้อม Force Entry
+
+## v3.25 QA Patch
+- ปรับ risk_per_trade เป็น 3% และขยาย TP1/TP2 เป็น 3.0/6.0
+- เพิ่มตรวจ signal_score และเทรนด์ M15 ใน generate_signal
+- calculate_position_size ปรับความเสี่ยงตาม ADX และจำกัด lot ตาม equity
+

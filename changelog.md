@@ -442,3 +442,12 @@
 ## [v1.9.66] — 2025-08-02
 ### Added
 - ฟังก์ชัน `entry_signal_trend_scalp` ใช้ Trend Scalping พร้อม Force Entry
+## [v1.9.67] — 2025-08-03
+### Changed
+- ปรับ risk_per_trade เป็น 3% และเพิ่ม lot_max เป็น 10
+- TP1/TP2 multiplier ขยายเป็น 3.0/6.0 และ sl_mult ลดเหลือ 1.0
+- กำหนดเวลาเทรด 0-24h และเข้าสู่โหมด Recovery หลังแพ้ 2 ไม้
+- Force entry gap ลดเหลือ 200 แท่ง
+- ฟังก์ชัน generate_signal ตรวจ minimum signal_score และเช็คแนวโน้ม M15
+- calculate_position_size ปรับสเกลความเสี่ยงตาม ADX และจำกัด lot ตาม equity
+
