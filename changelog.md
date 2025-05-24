@@ -479,3 +479,8 @@
 ### Added
 - โมดูล `walk_forward_engine.py` สำหรับวิเคราะห์ Walk Forward
 - เพิ่ม unit tests สำหรับโมดูลใหม่นี้
+
+## [v1.9.72] — 2025-08-08
+### Added
+- รวมระบบ Walk Forward Analysis เข้า enterprise.py และเพิ่มเมนู CLI เลือกโหมด
+

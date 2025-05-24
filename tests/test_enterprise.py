@@ -820,6 +820,52 @@ class TestSpikeNewsGuard(unittest.TestCase):
         self.assertTrue(enterprise.enable_auto_lot_scaling)
         self.assertTrue(enterprise.enable_equity_tp_sl_adjuster)
 
+    def test_param_grid_length(self):
+        self.assertGreaterEqual(len(enterprise.param_grid()), 1)
+
+    def test_run_backtest_custom_keys(self):
+        df = pd.DataFrame(
+            {
+                "timestamp": pd.date_range("2020-01-01", periods=30, freq="min"),
+                "open": np.linspace(1, 1.3, 30),
+                "high": np.linspace(1, 1.3, 30) + 0.1,
+                "low": np.linspace(1, 1.3, 30) - 0.1,
+                "close": np.linspace(1, 1.3, 30),
+            }
+        )
+        enterprise.TRADE_DIR = "."
+        params = enterprise.param_grid()[0]
+        res = enterprise.run_backtest_custom(df, params)
+        self.assertIn("Final Equity", res)
+        self.assertIn("Total Trades", res)
+        for f in os.listdir("."):
+            if f.startswith("trade_log_") or f.startswith("equity_curve_"):
+                os.remove(f)
+
+    def test_walk_forward_run_outputs(self):
+        df = pd.DataFrame(
+            {
+                "entry_time": pd.date_range("2020-01-01", periods=72, freq="H"),
+                "timestamp": pd.date_range("2020-01-01", periods=72, freq="H"),
+                "open": np.linspace(1, 1.2, 72),
+                "high": np.linspace(1, 1.2, 72) + 0.1,
+                "low": np.linspace(1, 1.2, 72) - 0.1,
+                "close": np.linspace(1, 1.2, 72),
+            }
+        )
+        df.to_csv("wfa_test.csv", index=False)
+        enterprise.TRADE_DIR = "."
+        enterprise.walk_forward_run("wfa_test.csv", fold_days=1)
+        self.assertTrue(os.path.exists("wfa_summary_results.csv"))
+        os.remove("wfa_test.csv")
+        if os.path.exists("wfa_summary_results.csv"):
+            os.remove("wfa_summary_results.csv")
+        if os.path.exists("wfa_equity_plot.png"):
+            os.remove("wfa_equity_plot.png")
+        for f in os.listdir("."):
+            if f.startswith("shap_summary_fold_"):
+                os.remove(f)
+
 
 
 if __name__ == "__main__":
