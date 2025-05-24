@@ -126,3 +126,8 @@
 - Partial TP 60% และ trail_stop_mult 0.4
 - เพิ่ม micro SL exit และระบบ re-entry สูงสุด 2 ไม้
 
+## v3.28 QA Patch
+- เพิ่มฟังก์ชันคำนวณล็อตอัตโนมัติ `calculate_auto_lot`
+- เพิ่มฟังก์ชัน `equity_based_tp_sl` ปรับ TP/SL ตามทุน
+- ปรับ `_execute_backtest` ใช้ค่าจากฟังก์ชันใหม่เมื่อเปิดใช้งาน
+

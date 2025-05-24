@@ -68,6 +68,10 @@ trail_stop_mult = 0.4                # [Patch] SL เคลื่อนตาม
 trade_start_hour = 0   # [Patch] allow trading from midnight
 trade_end_hour = 24  # [Patch] until end of day (24h trading)
 
+# CONFIG: เพิ่มค่าเปิดใช้งาน
+enable_auto_lot_scaling = True         # [ALS] เปิดระบบขนาดล็อตอัตโนมัติ
+enable_equity_tp_sl_adjuster = True    # [ETA] ปรับ TP/SL อิงทุน
+
 # [Patch] Commission, Spread, Slippage สมจริง
 SPREAD_POINTS = 80
 SPREAD_VALUE = 0.8
@@ -132,6 +136,39 @@ base_tp_distance = 2.0
 partial_tp_distance = 1.5
 break_even_distance = 1.0
 trailing_atr_multiplier = trail_stop_mult
+
+def calculate_auto_lot(equity, risk_pct, sl_distance, lot_max):
+    """[ALS] คำนวณล็อตอัตโนมัติตามทุนและระยะ SL"""
+    risk_amount = equity * risk_pct
+    lot = risk_amount / max(sl_distance, 1e-6)
+    lot = round(min(max(lot, 0.01), lot_max), 2)
+    logger.debug(
+        "[ALS] equity %.2f risk_pct %.2f sl_distance %.2f -> lot %.2f",
+        equity,
+        risk_pct,
+        sl_distance,
+        lot,
+    )
+    return lot
+
+
+def equity_based_tp_sl(equity):
+    """[ETA] คืนค่า TP1/SL multiplier ตามระดับทุน"""
+    if equity < 500:
+        tp, sl = 1.5, 0.8
+    elif equity < 1000:
+        tp, sl = 2.5, 1.0
+    elif equity < 5000:
+        tp, sl = 3.5, 1.2
+    else:
+        tp, sl = 4.5, 1.5
+    logger.debug(
+        "[ETA] equity %.2f -> TP1 %.2f SL %.2f",
+        equity,
+        tp,
+        sl,
+    )
+    return tp, sl
 
 
 def generate_signal(
@@ -1612,10 +1649,19 @@ def _execute_backtest(df):
                     continue
             atr = max(row["atr"], min_sl_dist)
             entry = row["close"]
-            # [Patch] apply updated TP/SL multipliers
-            sl = entry - atr * sl_mult if direction == "buy" else entry + atr * sl_mult
+            equity_now = capital
+            tp1_mult_now, sl_mult_now = tp1_mult, sl_mult
+            if enable_equity_tp_sl_adjuster:
+                tp1_mult_now, sl_mult_now = equity_based_tp_sl(equity_now)
+                logger.info(
+                    "[Patch ETA] Adjusted TP1=%.2f×ATR, SL=%.2f×ATR by equity $%.2f",
+                    tp1_mult_now,
+                    sl_mult_now,
+                    equity_now,
+                )
+            sl = entry - atr * sl_mult_now if direction == "buy" else entry + atr * sl_mult_now
             tp1 = (
-                entry + atr * tp1_mult if direction == "buy" else entry - atr * tp1_mult
+                entry + atr * tp1_mult_now if direction == "buy" else entry - atr * tp1_mult_now
             )
             tp2_mult_now = row.get("tp2_dynamic", tp2_mult)
             tp2 = (
@@ -1651,7 +1697,18 @@ def _execute_backtest(df):
                         row["adx"],
                         adx_strong,
                     )
-            lot = oms.smart_lot(capital, risk_amount, abs(entry - sl))
+            sl_distance = abs(entry - sl)
+            if enable_auto_lot_scaling:
+                lot = calculate_auto_lot(capital, risk_per_trade, sl_distance, lot_max)
+                logger.info(
+                    "[Patch ALS] Equity $%.2f → Lot %.2f (Risk %.2f%%, SL dist %.2f)",
+                    capital,
+                    lot,
+                    risk_per_trade * 100,
+                    sl_distance,
+                )
+            else:
+                lot = oms.smart_lot(capital, risk_amount, sl_distance)
             entry, sl, tp1, tp2, com = apply_order_costs(
                 entry, sl, tp1, tp2, lot, direction
             )

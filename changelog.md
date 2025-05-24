@@ -468,3 +468,9 @@
 - Force entry gap 100 แท่ง พร้อม micro SL exit
 - Partial TP 60% และ trail_stop_mult 0.4 พร้อม re-entry สูงสุด 2 ไม้
 
+## [v1.9.70] — 2025-08-06
+### Added
+- ฟังก์ชัน `calculate_auto_lot` สำหรับปรับขนาดล็อตตามทุนและระยะ SL
+- ฟังก์ชัน `equity_based_tp_sl` กำหนด TP/SL อัตโนมัติตาม Equity
+- ปรับ `_execute_backtest` เรียกใช้ฟังก์ชันใหม่และบันทึก log
+
