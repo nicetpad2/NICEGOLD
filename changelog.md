@@ -301,3 +301,8 @@
 - `calc_indicators` ปรับให้เรียกใช้ `rsi`
 - `add_m15_context_to_m1` ใช้ `merge_asof` บนดัชนี
 
+## [v1.9.45] — 2025-07-15
+### Added
+- ฟังก์ชัน `smart_entry_signal_goldai2025_style` สำหรับสร้างสัญญาณเทรดแบบ GoldAI2025
+- ปรับ `run_backtest` และ `run_backtest_multi_tf` ให้ใช้ตรรกะสัญญาณใหม่นี้
+
