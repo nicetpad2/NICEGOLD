@@ -451,3 +451,13 @@
 - ฟังก์ชัน generate_signal ตรวจ minimum signal_score และเช็คแนวโน้ม M15
 - calculate_position_size ปรับสเกลความเสี่ยงตาม ADX และจำกัด lot ตาม equity
 
+## [v1.9.68] — 2025-08-04
+### Changed
+- ลด risk_per_trade เป็น 2%
+- ปรับ kill_switch_dd เป็น 50%
+- เพิ่ม adx_thresh เป็น 15
+- force_entry_gap เป็น 300
+- ยกเลิกลิมิต lot สูงสุด 0.05 ใน `OMSManager`
+- `apply_session_bias` ไม่บล็อก session ใด
+- `_execute_backtest` ข้ามสัญญาณถ้า divergence สวนทาง
+
