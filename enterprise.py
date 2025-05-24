@@ -1109,6 +1109,45 @@ def smart_entry_signal_goldai2025_style(df):
     return df
 
 
+def entry_signal_always_on(df, mode="every_bar", step=30):
+    """[Patch][Always On Entry] - เข้าไม้ตลอดปี ไม่สน ATR/ADX/RSI
+    mode: "every_bar" (เข้าไม้ทุกแท่ง), "step" (ทุก N นาที), "trend_follow" (เข้าไม้ตาม EMA หลวมๆ)
+    step: ใช้เฉพาะ mode "step" เช่น step=30 คือเข้าไม้ทุก 30 แท่ง
+    """
+    import numpy as np
+    import pandas as pd
+
+    logger.info("[Patch] ENTRY SIGNAL: Always On Mode (%s)", mode)
+    df = df.copy()
+    df["entry_signal"] = None
+
+    if mode == "every_bar":
+        df.loc[df.index % 2 == 0, "entry_signal"] = "buy"
+        df.loc[df.index % 2 == 1, "entry_signal"] = "sell"
+    elif mode == "step":
+        for i in range(0, len(df), step):
+            df.at[df.index[i], "entry_signal"] = (
+                "buy" if (i // step) % 2 == 0 else "sell"
+            )
+    elif mode == "trend_follow":
+        if "ema_fast" not in df.columns or "ema_slow" not in df.columns:
+            logger.warning("[Patch] EMA columns missing, fallback to every_bar mode")
+            df.loc[df.index % 2 == 0, "entry_signal"] = "buy"
+            df.loc[df.index % 2 == 1, "entry_signal"] = "sell"
+        else:
+            df.loc[df["ema_fast"] > df["ema_slow"], "entry_signal"] = "buy"
+            df.loc[df["ema_fast"] < df["ema_slow"], "entry_signal"] = "sell"
+    else:
+        raise ValueError("Unknown always on mode")
+
+    logger.info(
+        "[Patch] Always On Entry signal generated: buy=%d, sell=%d",
+        (df["entry_signal"] == "buy").sum(),
+        (df["entry_signal"] == "sell").sum(),
+    )
+    return df
+
+
 class OMSManager:
     def __init__(self, capital, kill_switch_dd, lot_max):
         self.capital = capital
@@ -1700,7 +1739,7 @@ def run_backtest(path=None):
     df = load_data(path)
     df = data_quality_check(df)
     df = calc_indicators(df)
-    df = multi_session_trend_scalping(df)
+    df = entry_signal_always_on(df, mode="trend_follow")
     trades = _execute_backtest(df)
     if not trades.empty and "exit" in trades.columns:
         loss_indices = trades.loc[trades["exit"].isin(["SL", "ForceClose"]), "entry_idx"].tolist()
@@ -1740,7 +1779,7 @@ def run_backtest_multi_tf(path_m1=M1_PATH, path_m15=M15_PATH):
     df_m1 = tag_session(df_m1)
     df_m1 = tag_spike_guard(df_m1)
     df_m1 = tag_news_event(df_m1)
-    df_m1 = smart_entry_signal_goldai2025_style(df_m1)
+    df_m1 = entry_signal_always_on(df_m1, mode="trend_follow")
     df_m1 = apply_session_bias(df_m1)
     df_m1 = apply_spike_news_guard(df_m1)
     return _execute_backtest(df_m1)
@@ -1776,7 +1815,7 @@ def run_walkforward_backtest(df, n_folds=5, config_list=None):
         fold_df = tag_session(fold_df)
         fold_df = tag_spike_guard(fold_df)
         fold_df = tag_news_event(fold_df)
-        fold_df = smart_entry_signal_goldai2025_style(fold_df)
+        fold_df = entry_signal_always_on(fold_df, mode="trend_follow")
         fold_df = apply_session_bias(fold_df)
         fold_df = apply_spike_news_guard(fold_df)
         result = _execute_backtest(fold_df)
