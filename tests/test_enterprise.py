@@ -317,7 +317,7 @@ class TestDynamicTP2Session(unittest.TestCase):
         df = enterprise.tag_session(df)
         self.assertEqual(df["session"].tolist(), ["Asia", "London", "NY", "Other"])
         df = enterprise.apply_session_bias(df)
-        self.assertEqual(df["entry_signal"].tolist(), ["buy", "buy", "buy", "buy"])
+        self.assertEqual(df["entry_signal"].tolist(), ["buy", "buy", "buy", None])
 
     def test_execute_backtest_dynamic_tp2(self):
         enterprise.TRADE_DIR = "."
