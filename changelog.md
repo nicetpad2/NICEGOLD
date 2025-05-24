@@ -474,3 +474,8 @@
 - ฟังก์ชัน `equity_based_tp_sl` กำหนด TP/SL อัตโนมัติตาม Equity
 - ปรับ `_execute_backtest` เรียกใช้ฟังก์ชันใหม่และบันทึก log
 
+
+## [v1.9.71] — 2025-08-07
+### Added
+- โมดูล `walk_forward_engine.py` สำหรับวิเคราะห์ Walk Forward
+- เพิ่ม unit tests สำหรับโมดูลใหม่นี้
