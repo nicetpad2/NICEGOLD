@@ -779,6 +779,34 @@ class TestSpikeNewsGuard(unittest.TestCase):
                 os.remove(f)
         self.assertIsInstance(trades, pd.DataFrame)
 
+    def test_config_defaults(self):
+        assert enterprise.strategy_mode == "ib_commission_mode"
+        assert enterprise.force_entry_gap == 100
+        assert enterprise.partial_close_pct == 0.6
+        assert enterprise.enable_micro_sl_exit
+
+    def test_micro_sl_exit(self):
+        enterprise.TRADE_DIR = "."
+        df = pd.DataFrame({
+            "timestamp": pd.date_range("2020-01-01", periods=3, freq="min"),
+            "open": [1.0, 0.8, 0.8],
+            "high": [1.0, 0.8, 0.8],
+            "low": [1.0, 0.7, 0.7],
+            "close": [1.0, 0.8, 0.8],
+            "ema_fast": [2, 2, 2],
+            "ema_slow": [1, 1, 1],
+            "rsi": [60, 60, 60],
+            "adx": [20, 20, 20],
+            "atr": [2.0, 2.0, 2.0],
+            "entry_signal": ["buy", None, None],
+        })
+        trades = enterprise._execute_backtest(df)
+        for f in os.listdir("."):
+            if f.startswith("trade_log_") or f.startswith("equity_curve_"):
+                os.remove(f)
+        assert "MicroSL" in trades["exit"].values
+
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -56,7 +56,15 @@ trend_lookback = 25  # [Patch] เร็วขึ้น (trend สั้นล�
 adx_period = 14
 adx_thresh = 15  # [Patch] Slightly increase ADX threshold for stronger trend filter
 adx_strong = 23  # [Patch] ADX above this = strong trend
-force_entry_gap = 300  # [Patch] Force entry หากไม่มี order เกิน 300 แท่ง
+# CONFIG: ค่าตั้งต้นสำหรับ IB & Profit Mode
+strategy_mode = "ib_commission_mode"  # [Patch] เปิดโหมดเร่งออเดอร์เพื่อคอมมิชชั่น IB
+force_entry_gap = 100                 # [Patch] Force entry ทุก 100 แท่งถ้าไม่มีออเดอร์
+partial_close_pct = 0.6               # [Patch] Partial TP ทุกไม้ 60%
+lot_min = 0.01                        # [Patch] ไม้เล็กสุด ยิงให้ได้ออเดอร์มากสุด
+min_tp1_rr = 0.8                      # [Patch] TP1 RR ต่ำ เพื่อปิดกำไรไว สะสมคอม
+max_reentry = 2                       # [Patch] ยิง Re-entry ได้ 2 ไม้ ถ้า SL แต่ยังตามเทรนด์
+enable_micro_sl_exit = True          # [Patch] ออกจากไม้ไวถ้าเบี่ยงทิศ
+trail_stop_mult = 0.4                # [Patch] SL เคลื่อนตามราคาหลัง TP1
 trade_start_hour = 0   # [Patch] allow trading from midnight
 trade_end_hour = 24  # [Patch] until end of day (24h trading)
 
@@ -81,6 +89,13 @@ def is_in_session(current_time, sessions):
 
 def breakout_condition(price_data):
     return price_data.get("breakout", False)
+
+
+def trend_confirmed(indicators):
+    """[Patch] Confirm trend using EMA and MACD direction"""
+    ema_fast = indicators.get("ema_fast") or indicators.get("EMA50")
+    ema_slow = indicators.get("ema_slow") or indicators.get("EMA200")
+    return ema_fast is not None and ema_slow is not None and ema_fast > ema_slow
 
 
 def get_pip_value(symbol="XAUUSD", lot=1):
@@ -116,7 +131,7 @@ base_stop_distance = 1.0
 base_tp_distance = 2.0
 partial_tp_distance = 1.5
 break_even_distance = 1.0
-trailing_atr_multiplier = 1.0
+trailing_atr_multiplier = trail_stop_mult
 
 
 def generate_signal(
@@ -229,10 +244,10 @@ def on_price_update(order, price, indicators=None):
         and price >= order.partial_tp_level
         and not order.partial_taken
     ):
-        close_position(order, portion=0.5)
+        close_position(order, portion=partial_close_pct)
         order.partial_taken = True
         logger.info(
-            "[Patch] Partial TP hit for order %s: closed 50%% at price %.2f",
+            f"[Patch] Partial TP hit for order %s: closed {partial_close_pct*100:.0f}%% at price %.2f",
             order.id,
             price,
         )
@@ -259,10 +274,10 @@ def on_price_update_patch(order, price, indicators=None):
         and price >= order.partial_tp_level
         and not order.partial_taken
     ):
-        close_position(order, portion=0.5)
+        close_position(order, portion=partial_close_pct)
         order.partial_taken = True
         logger.info(
-            "[Patch] Partial TP hit for order %s: closed 50%% at price %.2f",
+            f"[Patch] Partial TP hit for order %s: closed {partial_close_pct*100:.0f}%% at price %.2f",
             order.id,
             price,
         )
@@ -289,10 +304,10 @@ def on_price_update_patch_v2(order, price, indicators=None):
         and price >= order.partial_tp_level
         and not order.partial_taken
     ):
-        close_position(order, portion=0.5)
+        close_position(order, portion=partial_close_pct)
         order.partial_taken = True
         logger.info(
-            "[Patch] Partial TP hit for order %s: closed 50%% at price %.2f",
+            f"[Patch] Partial TP hit for order %s: closed {partial_close_pct*100:.0f}%% at price %.2f",
             order.id,
             price,
         )
@@ -1101,7 +1116,6 @@ def smart_entry_signal_multi_tf_ema_adx(df, min_entry_gap_minutes=60):
                 f"[Patch] Entry: SELL at {timestamp} (ADX={adx:.2f}, RSI={rsi:.2f})"
             )
 
-    force_entry_gap = 300
     last_entry = 0
     for i in range(len(df)):
         if pd.notna(df["entry_signal"].iloc[i]):
@@ -1216,7 +1230,6 @@ def smart_entry_signal_multi_tf_ema_adx_optimized(df, min_entry_gap_minutes=60):
                 f"[Patch] Entry: SELL at {timestamp} (ADX={adx:.2f}, RSI={rsi:.2f}, GZ={gain_z:.2f}, Div={divergence})"
             )
 
-    force_entry_gap = 300
     last_entry = 0
     for i in range(len(df)):
         if pd.notna(df["entry_signal"].iloc[i]):
@@ -1299,7 +1312,7 @@ def run_backtest_aggressive(path=None):
     trades = _execute_backtest(df)
     return trades
 
-def smart_entry_signal_enterprise_v1(df, force_entry_gap=300):
+def smart_entry_signal_enterprise_v1(df, force_entry_gap=force_entry_gap):
     """
     [Patch] Multi-confirm Entry: EMA, ADX, RSI, Divergence, Gain_Z, Wave_Phase
     - Force Entry มี filter (gain_z/divergence)
@@ -1461,7 +1474,7 @@ class OMSManager:
         if self.win_streak >= 2:
             lot *= win_streak_boost
         lot_cap = min(lot_cap, lot_cap_max)
-        lot = max(0.01, min(lot, lot_cap))
+        lot = max(lot_min, min(lot, lot_cap))
         # [Patch] Remove lot cap 0.05 limit to allow scaling up
         return lot
 
@@ -1530,13 +1543,23 @@ def _execute_backtest(df):
             break
 
         # Entry
+        signal_dir = row["entry_signal"] if row["entry_signal"] in ["buy", "sell"] else None
+        if (
+            signal_dir is None
+            and position is None
+            and (i - last_entry_idx) >= force_entry_gap
+            and trend_confirmed(row)
+        ):
+            signal_dir = "buy" if row.get("ema_fast", 0) > row.get("ema_slow", 0) else "sell"
+            logger.info("[Patch] Force Entry Triggered @ bar %d", i)
+
         if (
             position is None
-            and row["entry_signal"] in ["buy", "sell"]
+            and signal_dir in ["buy", "sell"]
             and (i - last_entry_idx) >= cooldown_bars
             and oms.check_max_orders([p for p in [position] if p])
         ):
-            direction = row["entry_signal"]
+            direction = signal_dir
             # [Patch] Recovery Mode Strict Confirm
             strict_mode = oms.recovery_mode and oms.loss_streak >= 4
             if strict_mode:
@@ -1651,6 +1674,7 @@ def _execute_backtest(df):
                 "dd_at_entry": (oms.peak - capital) / oms.peak,
                 "peak_equity": oms.peak,
                 "commission": com,
+                "reentry_count": 0,
             }
             last_entry_idx = i
             logger.info(
@@ -1725,6 +1749,31 @@ def _execute_backtest(df):
                 hit_sl,
             )
 
+            bars_in_trade = i - position.get("entry_idx", i)
+            unrealized_pnl = (
+                (row["close"] - position["entry"]) * position["lot"] * (100 if position["type"] == "buy" else -100)
+            )
+            if enable_micro_sl_exit and bars_in_trade < 10 and unrealized_pnl < -1.5 * row.get("atr", 0):
+                logger.info("[Patch] Micro SL triggered: loss too early")
+                pnl = unrealized_pnl - position.get("commission", 0)
+                capital += pnl
+                trades.append(
+                    {
+                        **position,
+                        "exit_time": row["timestamp"],
+                        "exit": "MicroSL",
+                        "pnl": pnl,
+                        "capital": capital,
+                        "reason_exit": "Micro SL",
+                        "commission": position.get("commission", 0),
+                        "spread": SPREAD_VALUE,
+                        "slippage": SLIPPAGE,
+                    }
+                )
+                oms.update(capital, pnl > 0)
+                position = None
+                continue
+
             if i - position.get("entry_idx", i) >= 25:
                 atr_now = row.get("atr", 0)
                 atr_rolling = (
@@ -1775,7 +1824,42 @@ def _execute_backtest(df):
                     }
                 )
                 oms.update(capital, pnl > 0)
+                last_trade_direction = position["type"]
+                re_count = position.get("reentry_count", 0)
                 position = None
+                if re_count < max_reentry and trend_confirmed(row):
+                    logger.info("[Patch] Re-entry after SL in same trend")
+                    direction = last_trade_direction
+                    atr = max(row["atr"], min_sl_dist)
+                    entry = row["close"]
+                    sl = entry - atr * sl_mult if direction == "buy" else entry + atr * sl_mult
+                    tp1 = entry + atr * tp1_mult if direction == "buy" else entry - atr * tp1_mult
+                    tp2_mult_now = row.get("tp2_dynamic", tp2_mult)
+                    tp2 = entry + atr * tp2_mult_now if direction == "buy" else entry - atr * tp2_mult_now
+                    lot = oms.smart_lot(capital, capital * risk_per_trade, abs(entry - sl))
+                    entry, sl, tp1, tp2, com = apply_order_costs(entry, sl, tp1, tp2, lot, direction)
+                    position = {
+                        "entry_time": row["timestamp"],
+                        "type": direction,
+                        "entry": entry,
+                        "sl": sl,
+                        "tp1": tp1,
+                        "tp2": tp2,
+                        "lot": lot,
+                        "tp1_hit": False,
+                        "breakeven": False,
+                        "entry_idx": i,
+                        "reason_entry": "reentry",
+                        "mode": "RECOVERY" if oms.recovery_mode else "NORMAL",
+                        "risk": capital * risk_per_trade,
+                        "context": "reentry", 
+                        "dd_at_entry": (oms.peak - capital) / oms.peak,
+                        "peak_equity": oms.peak,
+                        "commission": com,
+                        "reentry_count": re_count + 1,
+                    }
+                    last_entry_idx = i
+                    continue
                 if len(trades) <= 3 and capital < initial_capital * 0.8:
                     logger.warning(
                         "[Patch][Debug] Stop - Too fast loss in first 3 trades, Check spread/sl/lot/commission logic!"
@@ -1786,7 +1870,7 @@ def _execute_backtest(df):
             # Partial TP1
             if not position["tp1_hit"] and hit_tp1:
                 pnl = (
-                    position["lot"] * abs(position["tp1"] - position["entry"]) * 0.5
+                    position["lot"] * abs(position["tp1"] - position["entry"]) * partial_close_pct
                 )
                 capital += pnl
                 position["sl"] = position["entry"]
@@ -1907,9 +1991,9 @@ def _execute_backtest(df):
             # Trailing SL after TP1
             if position["tp1_hit"]:
                 trailing_sl = (
-                    row["close"] - row["atr"] * trailing_atr_mult
+                    row["close"] - row["atr"] * trail_stop_mult
                     if position["type"] == "buy"
-                    else row["close"] + row["atr"] * trailing_atr_mult
+                    else row["close"] + row["atr"] * trail_stop_mult
                 )
                 if position["type"] == "buy" and trailing_sl > position["sl"]:
                     position["sl"] = trailing_sl

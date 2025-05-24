@@ -461,3 +461,10 @@
 - `apply_session_bias` ไม่บล็อก session ใด
 - `_execute_backtest` ข้ามสัญญาณถ้า divergence สวนทาง
 
+
+## [v1.9.69] — 2025-08-05
+### Added
+- โหมด ib_commission_mode เร่งออเดอร์สะสมคอมมิชชั่น
+- Force entry gap 100 แท่ง พร้อม micro SL exit
+- Partial TP 60% และ trail_stop_mult 0.4 พร้อม re-entry สูงสุด 2 ไม้
+
