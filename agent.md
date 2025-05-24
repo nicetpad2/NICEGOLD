@@ -141,3 +141,7 @@
 ## v3.31 QA Patch
 - [Patch G] ปรับสัญญาณ smart_entry_signal_enterprise_v1 ลด gain_z threshold, รองรับ wave_phase="mid" และ force_entry_gap=50
 
+## v3.32 QA Patch
+- ปรับเมนู CLI ตัด Basic Backtest และเหลือเฉพาะ Walk Forward กับ Multi-TF
+- โหมดเริ่มต้นเรียก `walk_forward_run` พร้อม debug log
+

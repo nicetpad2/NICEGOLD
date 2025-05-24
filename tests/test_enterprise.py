@@ -881,6 +881,25 @@ class TestSpikeNewsGuard(unittest.TestCase):
             if f.startswith("shap_summary_fold_"):
                 os.remove(f)
 
+    def test_main_menu_calls_correct_functions(self):
+        with patch("builtins.input", side_effect=["1", "file.csv"]), patch.object(
+            enterprise, "walk_forward_run"
+        ) as mwfa:
+            enterprise.main()
+            mwfa.assert_called_with("file.csv")
+
+        with patch("builtins.input", side_effect=["2", "file.csv"]), patch.object(
+            enterprise, "run_backtest_multi_tf"
+        ) as mmulti:
+            enterprise.main()
+            mmulti.assert_called_with()
+
+    def test_default_main_block_calls_wfa(self):
+        import inspect
+
+        src = inspect.getsource(enterprise)
+        self.assertIn("walk_forward_run(\"trade_log.csv\")", src)
+
 
 
 if __name__ == "__main__":
