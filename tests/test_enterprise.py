@@ -615,6 +615,22 @@ class TestSpikeNewsGuard(unittest.TestCase):
         res = enterprise.relaxed_entry_signal(df, force_gap=1)
         self.assertTrue(res["entry_signal"].notna().any())
 
+    def test_smart_entry_signal_enterprise_v1_force_and_counts(self):
+        df = pd.DataFrame(
+            {
+                "ema_fast": [2, 2, 0, 0],
+                "ema_slow": [1, 1, 1, 1],
+                "rsi": [60, 60, 40, 40],
+                "adx": [20, 20, 20, 20],
+                "gain_z": [0.6, 0.6, -0.6, -0.6],
+                "divergence": ["bullish", "bullish", "bearish", "bearish"],
+                "wave_phase": ["trough", "trough", "peak", "peak"],
+                "timestamp": pd.date_range("2020-01-01", periods=4, freq="min"),
+            }
+        )
+        res = enterprise.smart_entry_signal_enterprise_v1(df, force_entry_gap=1)
+        self.assertEqual(res["entry_signal"].tolist(), ["buy", "buy", "sell", "sell"])
+
     def test_walkforward_run_returns_list(self):
         df = pd.DataFrame(
             {

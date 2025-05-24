@@ -85,3 +85,8 @@
 - คำนวณ EMA/RSI/ATR หลายช่วงเมื่อเปิดโหมดใช้แรมสูง
 - บันทึกการใช้ RAM ก่อนและหลังรัน backtest
 
+
+## v3.20 QA Patch
+- เพิ่มฟังก์ชัน `smart_entry_signal_enterprise_v1` ใช้สัญญาณแบบ Multi-confirm
+- ปรับ `_execute_backtest` ตรวจ strict confirm ใน Recovery และ QA monitor loss streak
+- `run_backtest` เรียกใช้สัญญาณใหม่
