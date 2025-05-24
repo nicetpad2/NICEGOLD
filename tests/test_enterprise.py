@@ -187,5 +187,36 @@ class TestEnterprise(unittest.TestCase):
             if f.startswith('trade_log_') or f.startswith('equity_curve_'):
                 os.remove(f)
 
+    def test_label_elliott_wave(self):
+        df = pd.DataFrame({'high':[1,2,3,2,1], 'low':[0,1,2,1,0]})
+        res = enterprise.label_elliott_wave(df.copy())
+        self.assertIn('wave_phase', res.columns)
+
+    def test_detect_divergence_bullish(self):
+        df = pd.DataFrame({'low':[1,0.9,0.8], 'high':[1,1,1], 'rsi':[40,41,42]})
+        res = enterprise.detect_divergence(df.copy(), rsi_col='rsi')
+        self.assertEqual(res['divergence'].iloc[2], 'bullish')
+
+    def test_label_pattern(self):
+        df = pd.DataFrame({'ema_fast':[2,1], 'ema_slow':[1,2], 'rsi':[60,40]})
+        res = enterprise.label_pattern(df.copy())
+        self.assertEqual(res['pattern_label'].iloc[0], 'first_pullback')
+
+    def test_gain_zscore_and_meta_filter(self):
+        df = pd.DataFrame({
+            'close':[1,2,3],
+            'pattern_label':['first_pullback','first_pullback','first_pullback'],
+            'divergence':['bullish','bullish','bullish'],
+            'rsi':[60,60,60],
+            'high':[1,1,1],
+            'low':[0,0,0]
+        })
+        df = enterprise.calc_gain_zscore(df, window=2)
+        df = enterprise.label_elliott_wave(df)
+        df = enterprise.calc_signal_score(df)
+        df = enterprise.meta_classifier_filter(df)
+        self.assertIn('gain_z', df.columns)
+        self.assertTrue(df['meta_entry'].iloc[-1])
+
 if __name__ == '__main__':
     unittest.main()

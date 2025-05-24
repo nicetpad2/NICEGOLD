@@ -279,6 +279,86 @@ def add_m15_context_to_m1(df_m1, df_m15):
     return df_m1
 
 
+def label_elliott_wave(df, wave_col='wave_phase'):
+    """[Patch] Label Elliott Wave Phase using simple swing logic."""
+    logger.info("[Patch] Label Elliott Wave Phase")
+    df = df.copy()
+    df[wave_col] = None
+    window = 25
+    swing_high = df['high'].rolling(window, center=True).max()
+    swing_low = df['low'].rolling(window, center=True).min()
+    for i in range(len(df)):
+        if df['high'].iloc[i] == swing_high.iloc[i]:
+            df.at[df.index[i], wave_col] = 'peak'
+        elif df['low'].iloc[i] == swing_low.iloc[i]:
+            df.at[df.index[i], wave_col] = 'trough'
+        else:
+            df.at[df.index[i], wave_col] = 'mid'
+    return df
+
+
+def detect_divergence(df, rsi_col='rsi', macd_col='macd', div_col='divergence'):
+    """[Patch] Detect basic bullish/bearish divergence using RSI."""
+    logger.info("[Patch] Detect Divergence (RSI/MACD)")
+    df = df.copy()
+    df[div_col] = None
+    for i in range(2, len(df)):
+        if (
+            df['low'].iloc[i] < df['low'].iloc[i-1]
+            and df[rsi_col].iloc[i] > df[rsi_col].iloc[i-1]
+        ):
+            df.at[df.index[i], div_col] = 'bullish'
+        if (
+            df['high'].iloc[i] > df['high'].iloc[i-1]
+            and df[rsi_col].iloc[i] < df[rsi_col].iloc[i-1]
+        ):
+            df.at[df.index[i], div_col] = 'bearish'
+    return df
+
+
+def label_pattern(df, pattern_col='pattern_label'):
+    """[Patch] Tag simple price patterns using EMA and RSI."""
+    logger.info("[Patch] Pattern Labeling")
+    df = df.copy()
+    df[pattern_col] = None
+    cond_first_pullback = (df['ema_fast'] > df['ema_slow']) & (df['rsi'] > 50)
+    cond_throwback = (df['ema_fast'] < df['ema_slow']) & (df['rsi'] < 50)
+    df.loc[cond_first_pullback, pattern_col] = 'first_pullback'
+    df.loc[cond_throwback, pattern_col] = 'throwback'
+    return df
+
+
+def calc_gain_zscore(df, window=50, gain_col='gain_z'):
+    """[Patch] Calculate Z-score of price change as momentum."""
+    logger.info("[Patch] Calculate Gain_Z Z-score")
+    df = df.copy()
+    df['gain'] = df['close'].diff()
+    df[gain_col] = (
+        df['gain'] - df['gain'].rolling(window).mean()
+    ) / (df['gain'].rolling(window).std() + 1e-8)
+    return df
+
+
+def calc_signal_score(df, score_col='signal_score'):
+    """[Patch] Aggregate signal score from context features."""
+    logger.info("[Patch] Calculate Signal Score (context + pattern + divergence + gain_z)")
+    df = df.copy()
+    df[score_col] = 0
+    df.loc[df['pattern_label'].isin(['first_pullback', 'throwback']), score_col] += 1
+    df.loc[df['divergence'].notna(), score_col] += 1
+    df.loc[df['gain_z'] > 1.5, score_col] += 1
+    df.loc[df['wave_phase'].isin(['peak', 'trough']), score_col] += 1
+    return df
+
+
+def meta_classifier_filter(df, proba_col='meta_proba', score_col='signal_score', threshold=2):
+    """[Patch] Meta model filter for final entry permission."""
+    logger.info("[Patch] Meta Classifier filter")
+    df = df.copy()
+    df['meta_entry'] = df[score_col] >= threshold
+    return df
+
+
 def is_strong_trend(df, i):
     """Check if strong trend using rolling EMA and ADX."""
     if i < trend_lookback * 2:
@@ -638,6 +718,12 @@ def run_backtest(path=None):
         path = M1_PATH
     df = load_data(path)
     df = calc_indicators(df)
+    df = label_elliott_wave(df)
+    df = detect_divergence(df)
+    df = label_pattern(df)
+    df = calc_gain_zscore(df)
+    df = calc_signal_score(df)
+    df = meta_classifier_filter(df)
     df = smart_entry_signal_goldai2025_style(df)
     return _execute_backtest(df)
 
@@ -652,6 +738,12 @@ def run_backtest_multi_tf(path_m1=M1_PATH, path_m15=M15_PATH):
     df_m15 = calc_indicators(df_m15, ema_fast_period=50, ema_slow_period=200, rsi_period=14)
     df_m1 = calc_indicators(df_m1, ema_fast_period=15, ema_slow_period=50, rsi_period=14)
     df_m1 = add_m15_context_to_m1(df_m1, df_m15)
+    df_m1 = label_elliott_wave(df_m1)
+    df_m1 = detect_divergence(df_m1)
+    df_m1 = label_pattern(df_m1)
+    df_m1 = calc_gain_zscore(df_m1)
+    df_m1 = calc_signal_score(df_m1)
+    df_m1 = meta_classifier_filter(df_m1)
     df_m1 = smart_entry_signal_goldai2025_style(df_m1)
     return _execute_backtest(df_m1)
 
