@@ -22,6 +22,9 @@ M15_PATH = "/content/drive/MyDrive/NICEGOLD/XAUUSD_M15.csv"
 # [Patch] Enable full RAM mode
 MAX_RAM_MODE = True  # เปิดโหมดใช้แรมหนัก
 
+# [Patch QA] Store previous entry count for QA guard
+_PREV_ENTRY_COUNT = None
+
 # [Patch] Log RAM usage helper
 def log_ram_usage(note=""):
     if psutil is None:
@@ -1263,11 +1266,16 @@ def smart_entry_signal_enterprise_v1(df, force_entry_gap=300):
                 df.at[i, "entry_signal"] = direction
                 logger.info("[Patch] Force Entry (%s) at %s", direction, df["timestamp"].iloc[i])
                 last_entry = i
+    order_count = df["entry_signal"].notna().sum()
     logger.info(
         "[Patch] Entry signal (all): buy=%d, sell=%d",
         (df["entry_signal"] == "buy").sum(),
         (df["entry_signal"] == "sell").sum(),
     )
+    prev_count = globals().get("_PREV_ENTRY_COUNT")
+    if prev_count is not None and order_count < prev_count:
+        logger.warning("[Patch QA] Entry count dropped! Revert/relax entry logic.")
+    globals()["_PREV_ENTRY_COUNT"] = order_count
     return df
 
 def smart_entry_signal_goldai2025_style(df):
@@ -1441,15 +1449,32 @@ def _execute_backtest(df):
             and oms.check_max_orders([p for p in [position] if p])
         ):
             direction = row["entry_signal"]
-            # [Patch] Recovery Mode Strict Confirm
-            if oms.recovery_mode:
-                valid = False
-                if direction == "buy":
-                    valid = (row.get("divergence") == "bullish") or (row.get("gain_z", 0) > 0)
-                else:
-                    valid = (row.get("divergence") == "bearish") or (row.get("gain_z", 0) < 0)
-                if not valid:
-                    logger.info("[Patch QA] Recovery confirm fail at %s, skip entry", row["timestamp"])
+            strict_mode = oms.recovery_mode and oms.loss_streak >= 4
+            if strict_mode:
+                allow = (
+                    row.get("adx", 0) > 20
+                    and (
+                        (direction == "buy" and row.get("divergence") == "bullish")
+                        or (direction == "sell" and row.get("divergence") == "bearish")
+                    )
+                    and (
+                        (direction == "buy" and row.get("gain_z", 0) > 0.7)
+                        or (direction == "sell" and row.get("gain_z", 0) < -0.7)
+                    )
+                )
+                if not allow:
+                    logger.debug("[Patch] Strict entry reject at %s", row["timestamp"])
+                    continue
+            else:
+                allow = (
+                    row.get("adx", 0) > 12
+                    and (
+                        (direction == "buy" and row.get("rsi", 0) > 51)
+                        or (direction == "sell" and row.get("rsi", 0) < 49)
+                    )
+                )
+                if not allow:
+                    logger.debug("[Patch] Relax entry reject at %s", row["timestamp"])
                     continue
             price_range = max(row["high"] - row["low"], 1e-6)
             upper_wick_ratio = (row["high"] - row["close"]) / price_range
@@ -1785,8 +1810,8 @@ def _execute_backtest(df):
                     break
                 continue
 
-            # Trailing SL after TP1
-            if position["tp1_hit"]:
+            # Trailing SL after TP1 with ADX filter
+            if position["tp1_hit"] and row.get("adx", 0) > 20:
                 trailing_sl = (
                     row["close"] - row["atr"] * trailing_atr_mult
                     if position["type"] == "buy"

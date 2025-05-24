@@ -94,3 +94,8 @@
 ## v3.21 QA Patch
 - แก้ `calc_indicators` เพิ่มสร้าง `rsi_34` สำหรับ MAX_RAM_MODE
 - เพิ่มการตรวจสอบคอลัมน์ RSI ใน `detect_divergence` และแจ้งเตือนผ่าน logger
+
+## v3.22 QA Patch
+- `smart_entry_signal_enterprise_v1` เพิ่ม QA Guard ตรวจจำนวนสัญญาณลดลง
+- `_execute_backtest` ปรับ Adaptive Entry เฉพาะจุดเมื่ออยู่ใน Recovery Mode
+- ปรับ Trailing SL หลัง TP1 ให้ทำงานเมื่อ ADX > 20

@@ -4,6 +4,7 @@ import numpy as np
 import os
 import sys
 from datetime import datetime
+from unittest.mock import patch
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 import enterprise
@@ -651,6 +652,65 @@ class TestSpikeNewsGuard(unittest.TestCase):
         )
         res = enterprise.smart_entry_signal_enterprise_v1(df, force_entry_gap=1)
         self.assertEqual(res["entry_signal"].tolist(), ["buy", "buy", "sell", "sell"])
+
+    def test_entry_count_drop_warning(self):
+        enterprise._PREV_ENTRY_COUNT = None
+        df1 = pd.DataFrame({
+            "ema_fast": [2, 2],
+            "ema_slow": [1, 1],
+            "rsi": [60, 60],
+            "adx": [20, 20],
+            "gain_z": [0.6, 0.6],
+            "divergence": ["bullish", "bullish"],
+            "wave_phase": ["trough", "trough"],
+            "timestamp": pd.date_range("2020-01-01", periods=2, freq="min"),
+        })
+        enterprise.smart_entry_signal_enterprise_v1(df1, force_entry_gap=1)
+        df2 = df1.iloc[:1]
+        logger = enterprise.logger
+        with self.assertLogs(logger, level="WARNING") as cm:
+            enterprise.smart_entry_signal_enterprise_v1(df2, force_entry_gap=1)
+        self.assertTrue(any("Entry count dropped" in m for m in cm.output))
+
+    def test_strict_recovery_entry_conditions(self):
+        class DummyOMS(enterprise.OMSManager):
+            def __init__(self, *a, **k):
+                super().__init__(*a, **k)
+                self.recovery_mode = True
+                self.loss_streak = 4
+
+        df = pd.DataFrame({
+            "timestamp": pd.date_range("2020-01-01", periods=3, freq="min"),
+            "open": [1.0, 1.0, 1.0],
+            "high": [1.2, 10.0, 10.0],
+            "low": [0.8, 0.8, 0.8],
+            "close": [1.0, 1.1, 1.2],
+            "ema_fast": [2, 2, 2],
+            "ema_slow": [1, 1, 1],
+            "rsi": [60, 60, 60],
+            "adx": [15, 15, 15],
+            "atr": [2.0, 2.0, 2.0],
+            "entry_signal": ["buy", None, None],
+            "tp2_dynamic": [1.5, 1.5, 1.5],
+            "atr_long": [0.1, 0.1, 0.1],
+            "divergence": ["bullish", None, None],
+            "gain_z": [0.6, 0.0, 0.0],
+        })
+        with patch.object(enterprise, "OMSManager", DummyOMS):
+            trades = enterprise._execute_backtest(df)
+        for f in os.listdir("."):
+            if f.startswith("trade_log_") or f.startswith("equity_curve_"):
+                os.remove(f)
+        self.assertTrue(trades.empty)
+
+        df["adx"] = [25, 25, 25]
+        df["gain_z"] = [0.8, 0.0, 0.0]
+        with patch.object(enterprise, "OMSManager", DummyOMS):
+            trades2 = enterprise._execute_backtest(df)
+        for f in os.listdir("."):
+            if f.startswith("trade_log_") or f.startswith("equity_curve_"):
+                os.remove(f)
+        self.assertFalse(trades2.empty)
 
     def test_walkforward_run_returns_list(self):
         df = pd.DataFrame(
