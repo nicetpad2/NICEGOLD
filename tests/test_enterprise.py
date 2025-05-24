@@ -449,6 +449,23 @@ class TestSpikeNewsGuard(unittest.TestCase):
         results = enterprise.run_walkforward_backtest(df, n_folds=2)
         self.assertEqual(len(results), 2)
 
+    def test_multi_session_trend_scalping_basic(self):
+        df = pd.DataFrame(
+            {
+                "timestamp": pd.date_range("2020-01-01 08:00", periods=60, freq="min"),
+                "ema_fast": [2] * 60,
+                "ema_slow": [1] * 60,
+                "rsi": [60] * 60,
+                "atr": np.linspace(0.5, 1.5, 60),
+            }
+        )
+        res = enterprise.multi_session_trend_scalping(df)
+        self.assertTrue((res["entry_signal"] == "buy").any())
+
+    def test_constants_values(self):
+        self.assertEqual(enterprise.COMMISSION_PER_LOT, 0.10)
+        self.assertEqual(enterprise.SLIPPAGE, 0.2)
+
 
 if __name__ == "__main__":
     unittest.main()

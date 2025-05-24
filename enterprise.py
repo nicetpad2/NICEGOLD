@@ -18,10 +18,10 @@ M15_PATH = "/content/drive/MyDrive/NICEGOLD/XAUUSD_M15.csv"
 # [Patch] Parameters – MM & Growth
 initial_capital = 100.0
 risk_per_trade = 0.01  # [Patch] ลดความเสี่ยงต่อไม้เหลือ 1%
-tp1_mult = 2.5  # [Patch] ขยาย TP1 multiplier
-tp2_mult = 6.0  # [Patch] ขยาย TP2 multiplier
-sl_mult = 2.0  # [Patch] ขยับ SL ให้กว้างขึ้น
-min_sl_dist = 5.0  # [Patch] ระยะ SL ขั้นต่ำกว้างขึ้น
+tp1_mult = 2.0  # [Patch] ปรับ TP1 multiplier ตามความเป็นจริง
+tp2_mult = 4.0  # [Patch] ปรับ TP2 multiplier ตามความเป็นจริง
+sl_mult = 1.2  # [Patch] ลด SL multiplier ให้ใกล้เคียงตลาดจริง
+min_sl_dist = 4.0  # [Patch] ระยะ SL ขั้นต่ำสมจริง
 lot_max = 5.0  # [Patch] ปลดลิมิตให้สามารถปั้นพอร์ตโต
 lot_cap_500 = 0.5
 lot_cap_2000 = 1.0
@@ -44,8 +44,8 @@ trade_end_hour = 23
 # [Patch] Commission, Spread, Slippage สมจริง
 SPREAD_POINTS = 80
 SPREAD_VALUE = 0.8
-COMMISSION_PER_LOT = 0.02
-SLIPPAGE = 0.05
+COMMISSION_PER_LOT = 0.10
+SLIPPAGE = 0.2
 
 # --- Runtime utilities (merged) ---
 
@@ -573,6 +573,35 @@ def is_strong_trend(df, i):
     return trend and (adx or atr_high)
 
 
+def multi_session_trend_scalping(df):
+    """[Patch] Multi-Session Trend Scalping Entry Signal (ATR breakout + momentum)"""
+    logger.info(
+        "[Patch] Multi-Session Trend Scalping Entry Signal (ATR breakout + momentum)"
+    )
+    df = df.copy()
+    df["entry_signal"] = None
+    atr_quantile = df["atr"].quantile(0.65)
+    for i in range(50, len(df)):
+        hour = pd.to_datetime(df["timestamp"].iloc[i]).hour
+        if not (8 <= hour < 23):
+            continue
+        if df["atr"].iloc[i] < atr_quantile:
+            continue
+        if df["ema_fast"].iloc[i] > df["ema_slow"].iloc[i] and df["rsi"].iloc[i] > 55:
+            df.at[df.index[i], "entry_signal"] = "buy"
+        elif (
+            df["ema_fast"].iloc[i] < df["ema_slow"].iloc[i]
+            and df["rsi"].iloc[i] < 45
+        ):
+            df.at[df.index[i], "entry_signal"] = "sell"
+    logger.info(
+        "[Patch] Entry signal counts (Enterprise strategy): buy=%d, sell=%d",
+        (df["entry_signal"] == "buy").sum(),
+        (df["entry_signal"] == "sell").sum(),
+    )
+    return df
+
+
 def smart_entry_signal(df):
     logger.info(
         "[Patch] Vectorized entry signal (trend+min SL guard+relax+force entry)"
@@ -860,8 +889,8 @@ def _execute_backtest(df):
                 continue
             if direction == "sell" and lower_wick_ratio > 0.80:
                 continue
-            if row["atr"] < SPREAD_VALUE * 2.5:
-                continue  # [Patch] ATR ต่ำกว่า spread x2.5 ไม่เทรด
+            if row["atr"] < SPREAD_VALUE * 2.0:
+                continue  # [Patch] ข้ามไม้ตลาดแคบ
             atr = max(row["atr"], min_sl_dist)
             entry = row["close"]
             sl = entry - atr * sl_mult if direction == "buy" else entry + atr * sl_mult
@@ -1219,19 +1248,7 @@ def run_backtest(path=None):
     df = load_data(path)
     df = data_quality_check(df)
     df = calc_indicators(df)
-    df = calc_dynamic_tp2(df)
-    df = label_elliott_wave(df)
-    df = detect_divergence(df)
-    df = label_pattern(df)
-    df = calc_gain_zscore(df)
-    df = calc_signal_score(df)
-    df, _ = shap_feature_importance_placeholder(df)
-    df = tag_session(df)
-    df = tag_spike_guard(df)
-    df = tag_news_event(df)
-    df = smart_entry_signal_goldai2025_style(df)
-    df = apply_session_bias(df)
-    df = apply_spike_news_guard(df)
+    df = multi_session_trend_scalping(df)
     return _execute_backtest(df)
 
 
