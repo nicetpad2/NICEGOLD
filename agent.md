@@ -107,3 +107,7 @@
 - ปรับ OMS kill switch ให้เป็นแค่คำเตือน
 - ลดการ Boost lot และ Recovery ให้ไม่รุนแรง
 
+## v3.24 QA Patch
+- เพิ่ม `calc_basic_indicators`, `relaxed_entry_signal` และ `walkforward_run`
+- ระบบ Force Entry เมื่อไม่มีสัญญาณนานเกินกำหนดและ QA Log ต่อ Fold
+

@@ -1751,6 +1751,86 @@ def qa_validate_backtest(trades_df, equity_df, min_trades=15, min_profit=15, pre
     }
 
 
+def calc_basic_indicators(df):
+    """[Patch] คำนวณ EMA, RSI, ATR สำหรับระบบ Entry ใหม่"""
+    logger.info("[Patch] Calculating basic indicators")
+    df = df.copy()
+    df["EMA_20"] = df["close"].ewm(span=20, adjust=False).mean()
+    df["EMA_50"] = df["close"].ewm(span=50, adjust=False).mean()
+    df["RSI_14"] = rsi(df["close"], 14)
+    df["ATR_14"] = (df["high"] - df["low"]).rolling(14).mean()
+    return df
+
+
+def relaxed_entry_signal(df, force_gap=350):
+    """[Patch] Relaxed Entry Signal + Force Entry"""
+    import pandas as pd
+
+    logger.info("[Patch] Generating relaxed entry signals")
+    df = df.copy()
+    df["entry_signal"] = None
+    mask_long = (
+        (df["close"] > df["open"])
+        & (df["close"] > df["EMA_20"])
+        & (df["EMA_20"] > df["EMA_50"])
+        & (df["RSI_14"] > 51)
+        & (df["ATR_14"] > 0.2)
+    )
+    mask_short = (
+        (df["close"] < df["open"])
+        & (df["close"] < df["EMA_20"])
+        & (df["EMA_20"] < df["EMA_50"])
+        & (df["RSI_14"] < 49)
+        & (df["ATR_14"] > 0.2)
+    )
+    df.loc[mask_long, "entry_signal"] = "buy"
+    df.loc[mask_short, "entry_signal"] = "sell"
+    last_signal_idx = -force_gap
+    for i in range(len(df)):
+        if pd.notna(df["entry_signal"].iloc[i]):
+            last_signal_idx = i
+        elif i - last_signal_idx > force_gap:
+            if df["ATR_14"].iloc[i] > 0.2:
+                if df["EMA_20"].iloc[i] > df["EMA_50"].iloc[i]:
+                    df.at[df.index[i], "entry_signal"] = "buy"
+                else:
+                    df.at[df.index[i], "entry_signal"] = "sell"
+                last_signal_idx = i
+                logger.info("[Patch] Force Entry at %s", df.index[i])
+    logger.info(
+        "[Patch] Entry signals: buy=%d, sell=%d",
+        (df["entry_signal"] == "buy").sum(),
+        (df["entry_signal"] == "sell").sum(),
+    )
+    return df
+
+
+def walkforward_run(df, fold_size=150_000):
+    """[Patch] รัน Backtest ทีละ Fold (Walk-Forward) พร้อม Export QA Log"""
+    logger.info(
+        "[Patch] Running Walk-Forward Fold size=%d, Total=%d rows",
+        fold_size,
+        len(df),
+    )
+    n = len(df)
+    folds = []
+    for i in range(0, n, fold_size):
+        fold_df = df.iloc[i : i + fold_size].copy()
+        fold_no = i // fold_size + 1
+        logger.info("[Patch] Fold %d: %d rows", fold_no, len(fold_df))
+        fold_df = calc_basic_indicators(fold_df)
+        fold_df = relaxed_entry_signal(fold_df)
+        folds.append(fold_df)
+        logger.info(
+            "[Patch] Fold %d: Entry buy=%d, sell=%d",
+            fold_no,
+            (fold_df["entry_signal"] == "buy").sum(),
+            (fold_df["entry_signal"] == "sell").sum(),
+        )
+    logger.info("[Patch] Walk-Forward Run Completed")
+    return folds
+
+
 def run_backtest(path=None):
     """Run single timeframe backtest (goldai2025 entry logic)."""
     logger.debug("[Patch] run_backtest called with path=%s", path)
@@ -1845,4 +1925,15 @@ def run_walkforward_backtest(df, n_folds=5, config_list=None):
 
 
 if __name__ == "__main__":
-    run_backtest()
+    import pandas as pd
+
+    df = pd.read_csv("XAUUSD_M1.csv")
+    df["Date"] = df["Date"].astype(str)
+    df["Year_AD"] = df["Date"].str[:4].astype(int) - 543
+    df["Month"] = df["Date"].str[4:6]
+    df["Day"] = df["Date"].str[6:8]
+    df["datetime"] = pd.to_datetime(
+        df["Year_AD"].astype(str) + "-" + df["Month"] + "-" + df["Day"] + " " + df["Timestamp"]
+    )
+    df.set_index("datetime", inplace=True)
+    folds = walkforward_run(df)
