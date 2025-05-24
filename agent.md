@@ -30,3 +30,7 @@
 - เพิ่มฟังก์ชัน `rsi` และปรับ `calc_indicators` ใช้งาน
 - `add_m15_context_to_m1` ปรับเป็น `merge_asof` ตามดัชนี
 
+## v3.9 QA Patch
+- เพิ่มฟังก์ชัน `smart_entry_signal_goldai2025_style` สำหรับสร้างสัญญาณแบบ GoldAI2025
+- ปรับ `run_backtest` และ `run_backtest_multi_tf` ให้เรียกใช้ฟังก์ชันใหม่
+

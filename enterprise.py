@@ -403,6 +403,34 @@ def smart_entry_signal_multi_tf(df):
     )
     return df
 
+
+def smart_entry_signal_goldai2025_style(df):
+    """Entry signal logic for GoldAI2025."""
+    logger.info("[Patch] Entry signal GoldAI2025 style")
+    df = df.copy()
+    df['entry_signal'] = None
+
+    buy_cond = (df['ema_fast'] > df['ema_slow']) & (df['rsi'] > 55)
+    sell_cond = (df['ema_fast'] < df['ema_slow']) & (df['rsi'] < 45)
+
+    if {'m15_ema_fast', 'm15_ema_slow', 'm15_rsi'}.issubset(df.columns):
+        buy_cond &= (df['m15_ema_fast'] > df['m15_ema_slow']) & (df['m15_rsi'] > 55)
+        sell_cond &= (df['m15_ema_fast'] < df['m15_ema_slow']) & (df['m15_rsi'] < 45)
+
+    df.loc[buy_cond, 'entry_signal'] = 'buy'
+    df.loc[sell_cond, 'entry_signal'] = 'sell'
+
+    logger.info(
+        "[Patch] GoldAI2025 Entry counts: buy=%d, sell=%d",
+        (df['entry_signal'] == 'buy').sum(),
+        (df['entry_signal'] == 'sell').sum(),
+    )
+    logger.debug(
+        "GoldAI2025 Entry indices: %s",
+        df[df['entry_signal'].notna()].index.tolist(),
+    )
+    return df
+
 class OMSManager:
     def __init__(self, capital, kill_switch_dd, lot_max):
         self.capital = capital
@@ -604,23 +632,27 @@ def _execute_backtest(df):
 
 
 def run_backtest(path=None):
-    """Run single timeframe backtest."""
+    """Run single timeframe backtest (goldai2025 entry logic)."""
+    logger.debug("[Patch] run_backtest called with path=%s", path)
     if path is None:
         path = M1_PATH
     df = load_data(path)
     df = calc_indicators(df)
-    df = smart_entry_signal(df)
+    df = smart_entry_signal_goldai2025_style(df)
     return _execute_backtest(df)
 
 
 def run_backtest_multi_tf(path_m1=M1_PATH, path_m15=M15_PATH):
-    """[Patch] Backtest with M1 trade data and M15 trend confirmation."""
+    """Backtest with M1 trade data and M15 trend confirmation (goldai2025 entry logic)."""
+    logger.debug(
+        "[Patch] run_backtest_multi_tf called with paths %s, %s", path_m1, path_m15
+    )
     df_m1 = load_data(path_m1)
     df_m15 = load_data(path_m15)
     df_m15 = calc_indicators(df_m15, ema_fast_period=50, ema_slow_period=200, rsi_period=14)
     df_m1 = calc_indicators(df_m1, ema_fast_period=15, ema_slow_period=50, rsi_period=14)
     df_m1 = add_m15_context_to_m1(df_m1, df_m15)
-    df_m1 = smart_entry_signal_multi_tf(df_m1)
+    df_m1 = smart_entry_signal_goldai2025_style(df_m1)
     return _execute_backtest(df_m1)
 
 if __name__ == "__main__":
