@@ -131,3 +131,6 @@
 - เพิ่มฟังก์ชัน `equity_based_tp_sl` ปรับ TP/SL ตามทุน
 - ปรับ `_execute_backtest` ใช้ค่าจากฟังก์ชันใหม่เมื่อเปิดใช้งาน
 
+
+## v3.29 QA Patch
+- เพิ่มโมดูล `walk_forward_engine.py` สำหรับ Walk Forward Analysis และบันทึก log แบบละเอียด
