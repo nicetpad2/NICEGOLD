@@ -354,3 +354,11 @@
 - ขยาย TP multiplier และ SL multiplier ตามค่าพารามิเตอร์ใหม่
 - กรอง ATR ต่ำกว่า `spread x2.5` ไม่เข้าเทรด และจำกัด lot ≤ 0.05
 - เพิ่ม unit test ตรวจสอบ lot cap ใหม่
+
+## [v1.9.54] — 2025-07-24
+### Changed
+- ปรับค่าคอมมิชชันเป็น 0.10 และ slippage 0.2
+- ปรับ TP1/TP2 และ SL multiplier ให้สมจริง
+- เพิ่มกลยุทธ์ `multi_session_trend_scalping` และปรับ pipeline backtest
+- กรอง ATR ต่ำกว่า `spread x2.0` ไม่เข้าเทรด
+- เพิ่ม unit test และ log ครบถ้วน

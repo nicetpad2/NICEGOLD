@@ -73,3 +73,9 @@
 - ระยะ SL ขั้นต่ำ 5 จุด และกรอง ATR < spread x2.5
 - จำกัด lot ไม่เกิน 0.05 ต่อไม้
 - เพิ่ม debug log รายงาน ATR และค่าใช้จ่ายทุกไม้
+
+## v3.18 QA Patch
+- ปรับค่าคอมมิชชันเป็น 0.10 และ slippage 0.2
+- ปรับ risk management (tp1_mult=2.0, tp2_mult=4.0, sl_mult=1.2, min_sl_dist=4)
+- เพิ่มฟังก์ชัน `multi_session_trend_scalping` และใช้ใน pipeline `run_backtest`
+- บันทึกจำนวนสัญญาณเข้าออเดอร์แบบละเอียด
