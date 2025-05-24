@@ -420,3 +420,8 @@
 ### Changed
 - `_execute_backtest` เพิ่ม Recovery strict confirm และ QA monitor
 - `run_backtest` ใช้สัญญาณใหม่
+
+## [v1.9.63] — 2025-07-31
+### Changed
+- `calc_indicators` เพิ่มสร้าง `rsi_34` เมื่อเปิด MAX_RAM_MODE
+- `detect_divergence` ตรวจว่า `rsi_{p}` มีอยู่หรือไม่ก่อนประมวลผลและแจ้งเตือนผ่าน logger

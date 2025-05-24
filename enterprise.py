@@ -406,8 +406,9 @@ def calc_indicators(df, ema_fast_period=None, ema_slow_period=None, rsi_period=1
     if MAX_RAM_MODE:
         for span in [5, 8, 13, 21, 34, 55, 100, 200]:
             df[f"ema_{span}"] = df["close"].ewm(span=span, adjust=False).mean()
-        for p in [7, 14, 21, 28]:
+        for p in [7, 14, 21, 28, 34]:  # [Patch] include rsi_34
             df[f"rsi_{p}"] = rsi(df["close"], p)
+        logger.debug("[Patch] Extra RSI periods calculated: %s", [7, 14, 21, 28, 34])
         for win in [7, 14, 50, 100, 200, 500]:
             df[f"atr_{win}"] = (df["high"] - df["low"]).rolling(win).mean()
     up_move = df["high"].diff().clip(lower=0)
@@ -503,17 +504,24 @@ def detect_divergence(df, rsi_col="rsi", macd_col="macd", div_col="divergence"):
         for p in [7, 14, 21, 34]:
             name = f"div_rsi_{p}"
             df[name] = None
-            for i in range(p, len(df)):
-                if (
-                    df["low"].iloc[i] < df["low"].iloc[i - p]
-                    and df[f"rsi_{p}"].iloc[i] > df[f"rsi_{p}"].iloc[i - p]
-                ):
-                    df.at[df.index[i], name] = "bullish"
-                if (
-                    df["high"].iloc[i] > df["high"].iloc[i - p]
-                    and df[f"rsi_{p}"].iloc[i] < df[f"rsi_{p}"].iloc[i - p]
-                ):
-                    df.at[df.index[i], name] = "bearish"
+            if f"rsi_{p}" in df.columns:
+                for i in range(p, len(df)):
+                    if (
+                        df["low"].iloc[i] < df["low"].iloc[i - p]
+                        and df[f"rsi_{p}"].iloc[i] > df[f"rsi_{p}"].iloc[i - p]
+                    ):
+                        df.at[df.index[i], name] = "bullish"
+                    if (
+                        df["high"].iloc[i] > df["high"].iloc[i - p]
+                        and df[f"rsi_{p}"].iloc[i] < df[f"rsi_{p}"].iloc[i - p]
+                    ):
+                        df.at[df.index[i], name] = "bearish"
+            else:
+                logger.warning(
+                    "[Patch] RSI_%d not found! Skipped divergence for period %d",
+                    p,
+                    p,
+                )
     log_ram_usage("detect_divergence")
     return df
 
