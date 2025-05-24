@@ -425,3 +425,10 @@
 ### Changed
 - `calc_indicators` เพิ่มสร้าง `rsi_34` เมื่อเปิด MAX_RAM_MODE
 - `detect_divergence` ตรวจว่า `rsi_{p}` มีอยู่หรือไม่ก่อนประมวลผลและแจ้งเตือนผ่าน logger
+
+## [v1.9.64] — 2025-07-31
+### Added
+- QA Guard เปรียบเทียบจำนวนสัญญาณเข้าออเดอร์เดิม
+### Changed
+- `_execute_backtest` ใช้ Adaptive Entry แบบ strict เมื่อแพ้ต่อเนื่อง >= 4
+- ปรับ Trailing SL หลัง TP1 ให้ทำงานเมื่อ ADX สูง
