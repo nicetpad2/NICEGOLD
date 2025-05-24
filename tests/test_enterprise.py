@@ -31,6 +31,18 @@ class TestEnterprise(unittest.TestCase):
         for col in ["ema_fast", "ema_slow", "rsi", "atr", "adx", "ema_55", "rsi_14"]:
             self.assertIn(col, res.columns)
 
+    def test_calc_indicators_rsi_34(self):
+        df = pd.DataFrame(
+            {
+                "close": np.arange(40, dtype=float) + 1,
+                "high": np.arange(40, dtype=float) + 2,
+                "low": np.arange(40, dtype=float) + 1,
+            }
+        )
+        res = enterprise.calc_indicators(df)
+        self.assertIn("rsi_34", res.columns)
+
+
     def test_log_ram_usage_logs(self):
         logger = enterprise.logger
         with self.assertLogs(logger, level="INFO") as cm:
@@ -245,6 +257,15 @@ class TestEnterprise(unittest.TestCase):
         )
         res = enterprise.detect_divergence(df.copy(), rsi_col="rsi")
         self.assertEqual(res["divergence"].iloc[2], "bullish")
+
+    def test_detect_divergence_missing_rsi(self):
+        df = pd.DataFrame(
+            {"low": [1, 0.9, 0.8, 0.7], "high": [1, 1, 1, 1], "rsi": [40, 41, 42, 43]}
+        )
+        with self.assertLogs(enterprise.logger, level="WARNING") as cm:
+            res = enterprise.detect_divergence(df.copy(), rsi_col="rsi")
+        self.assertIn("divergence", res.columns)
+        self.assertTrue(any("RSI_" in m for m in cm.output))
 
     def test_label_pattern(self):
         df = pd.DataFrame({"ema_fast": [2, 1], "ema_slow": [1, 2], "rsi": [60, 40]})

@@ -90,3 +90,7 @@
 - เพิ่มฟังก์ชัน `smart_entry_signal_enterprise_v1` ใช้สัญญาณแบบ Multi-confirm
 - ปรับ `_execute_backtest` ตรวจ strict confirm ใน Recovery และ QA monitor loss streak
 - `run_backtest` เรียกใช้สัญญาณใหม่
+
+## v3.21 QA Patch
+- แก้ `calc_indicators` เพิ่มสร้าง `rsi_34` สำหรับ MAX_RAM_MODE
+- เพิ่มการตรวจสอบคอลัมน์ RSI ใน `detect_divergence` และแจ้งเตือนผ่าน logger
