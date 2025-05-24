@@ -510,6 +510,20 @@ class TestSpikeNewsGuard(unittest.TestCase):
         self.assertIn("entry_signal", res.columns)
         self.assertTrue(res["entry_signal"].notna().any())
 
+    def test_entry_signal_trend_scalp_force_gap(self):
+        df = pd.DataFrame(
+            {
+                "ema_fast": [2, 2, 2, 2, 2],
+                "ema_slow": [1, 1, 1, 1, 1],
+                "rsi": [60, 60, 40, 40, 60],
+                "adx": [20] * 5,
+                "atr": [1.2] * 5,
+            }
+        )
+        res = enterprise.entry_signal_trend_scalp(df, force_gap=1)
+        self.assertEqual(res["entry_signal"].iloc[2], "buy")
+        self.assertTrue(res["entry_signal"].notna().any())
+
     def test_constants_values(self):
         self.assertEqual(enterprise.COMMISSION_PER_LOT, 0.10)
         self.assertEqual(enterprise.SLIPPAGE, 0.2)
