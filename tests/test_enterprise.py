@@ -218,5 +218,53 @@ class TestEnterprise(unittest.TestCase):
         self.assertIn('gain_z', df.columns)
         self.assertTrue(df['meta_entry'].iloc[-1])
 
+
+class TestDynamicTP2Session(unittest.TestCase):
+    def test_calc_dynamic_tp2_column(self):
+        df = pd.DataFrame({'atr': [1, 1, 5, 1]})
+        res = enterprise.calc_dynamic_tp2(df.copy(), base_tp2_mult=2.0, atr_period=2)
+        self.assertIn('tp2_dynamic', res.columns)
+        self.assertAlmostEqual(res['tp2_dynamic'].iloc[2], 1.5, places=2)
+        self.assertAlmostEqual(res['tp2_dynamic'].iloc[3], 2.5, places=2)
+
+    def test_tag_session_and_bias(self):
+        df = pd.DataFrame({
+            'timestamp': pd.to_datetime([
+                '2020-01-01 00:00', '2020-01-01 08:00',
+                '2020-01-01 16:00', '2020-01-01 23:30'
+            ]),
+            'entry_signal': ['buy'] * 4
+        })
+        df = enterprise.tag_session(df)
+        self.assertEqual(df['session'].tolist(), ['Asia', 'London', 'NY', 'Other'])
+        df = enterprise.apply_session_bias(df)
+        self.assertIsNone(df['entry_signal'].iloc[3])
+
+    def test_execute_backtest_dynamic_tp2(self):
+        enterprise.TRADE_DIR = '.'
+        df = pd.DataFrame({
+            'timestamp': pd.date_range('2020-01-01', periods=3, freq='min'),
+            'open': [1.0, 1.0, 1.0],
+            'high': [2.5, 5.0, 5.0],
+            'low': [-1.0, 0.8, 0.8],
+            'close': [1.0, 1.1, 1.2],
+            'ema_fast': [2, 2, 2],
+            'ema_slow': [1, 1, 1],
+            'rsi': [60, 60, 60],
+            'adx': [20, 20, 20],
+            'atr': [0.1, 0.1, 0.1],
+            'entry_signal': ['buy', None, None],
+            'tp2_dynamic': [1.5, 1.5, 1.5],
+            'atr_long': [0.1, 0.1, 0.1]
+        })
+        trades = enterprise._execute_backtest(df)
+        for f in os.listdir('.'):  # cleanup
+            if f.startswith('trade_log_') or f.startswith('equity_curve_'):
+                os.remove(f)
+        for f in os.listdir('.'):  # cleanup
+            if f.startswith('trade_log_') or f.startswith('equity_curve_'):
+                os.remove(f)
+        self.assertAlmostEqual(trades['tp2'].iloc[0], 1 + 2.0 * 1.5)
+
 if __name__ == '__main__':
     unittest.main()

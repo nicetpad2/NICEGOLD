@@ -359,6 +359,48 @@ def meta_classifier_filter(df, proba_col='meta_proba', score_col='signal_score',
     return df
 
 
+def calc_dynamic_tp2(df, base_tp2_mult=3.0, atr_period=1000, tp2_col='tp2_dynamic'):
+    """[Patch] Calculate Dynamic TP2 Multiplier based on volatility regime."""
+    logger.info("[Patch] Calculate Dynamic TP2 Multiplier")
+    df = df.copy()
+    df['atr_long'] = df['atr'].rolling(atr_period).mean()
+    df[tp2_col] = base_tp2_mult
+    high_vol = df['atr'] > 1.5 * df['atr_long']
+    low_vol = df['atr'] < 0.8 * df['atr_long']
+    df.loc[high_vol, tp2_col] = base_tp2_mult * 0.75
+    df.loc[low_vol, tp2_col] = base_tp2_mult * 1.25
+    df[tp2_col] = df[tp2_col].clip(lower=base_tp2_mult * 0.5, upper=base_tp2_mult * 2.0)
+    return df
+
+
+def tag_session(df, session_col='session'):
+    """[Patch] Tag trading session (Asia/London/NY/Other)."""
+    logger.info("[Patch] Tag trading session (Asia/London/NY)")
+    session = []
+    for ts in pd.to_datetime(df['timestamp']):
+        hour = ts.hour
+        if 0 <= hour < 8:
+            session.append('Asia')
+        elif 8 <= hour < 16:
+            session.append('London')
+        elif 16 <= hour < 23:
+            session.append('NY')
+        else:
+            session.append('Other')
+    df[session_col] = session
+    return df
+
+
+def apply_session_bias(df, entry_col='entry_signal', session_col='session'):
+    """[Patch] Filter or adjust entry signal based on session bias."""
+    logger.info("[Patch] Apply session bias (entry filter/boost)")
+    df = df.copy()
+    block_sessions = ['Other']
+    mask_block = df[session_col].isin(block_sessions)
+    df.loc[mask_block, entry_col] = None
+    return df
+
+
 def is_strong_trend(df, i):
     """Check if strong trend using rolling EMA and ADX."""
     if i < trend_lookback * 2:
@@ -593,10 +635,19 @@ def _execute_backtest(df):
                 continue
             atr = max(row['atr'], min_sl_dist)
             entry = row['close']
-            sl = entry - atr*sl_mult if direction == 'buy' else entry + atr*sl_mult
-            tp1 = entry + atr*tp1_mult if direction == 'buy' else entry - atr*tp1_mult
-            tp2 = entry + atr*tp2_mult if direction == 'buy' else entry - atr*tp2_mult
+            sl = entry - atr * sl_mult if direction == 'buy' else entry + atr * sl_mult
+            tp1 = entry + atr * tp1_mult if direction == 'buy' else entry - atr * tp1_mult
+            tp2_mult_now = row.get('tp2_dynamic', tp2_mult)
+            tp2 = entry + atr * tp2_mult_now if direction == 'buy' else entry - atr * tp2_mult_now
             risk_amount = capital * risk_per_trade
+            if 'atr_long' in row:
+                if row['atr'] > 1.5 * row['atr_long']:
+                    risk_amount *= 0.75
+                elif row['atr'] < 0.8 * row['atr_long']:
+                    risk_amount *= 1.15
+            logger.debug(
+                "[Patch] TP2 mult %.2f, risk amount %.2f", tp2_mult_now, risk_amount
+            )
             # [Patch] Adaptive risk management + signal boost
             if not oms.recovery_mode:
                 if oms.win_streak >= 2:
@@ -718,13 +769,15 @@ def run_backtest(path=None):
         path = M1_PATH
     df = load_data(path)
     df = calc_indicators(df)
+    df = calc_dynamic_tp2(df)
     df = label_elliott_wave(df)
     df = detect_divergence(df)
     df = label_pattern(df)
     df = calc_gain_zscore(df)
     df = calc_signal_score(df)
-    df = meta_classifier_filter(df)
+    df = tag_session(df)
     df = smart_entry_signal_goldai2025_style(df)
+    df = apply_session_bias(df)
     return _execute_backtest(df)
 
 
@@ -737,14 +790,16 @@ def run_backtest_multi_tf(path_m1=M1_PATH, path_m15=M15_PATH):
     df_m15 = load_data(path_m15)
     df_m15 = calc_indicators(df_m15, ema_fast_period=50, ema_slow_period=200, rsi_period=14)
     df_m1 = calc_indicators(df_m1, ema_fast_period=15, ema_slow_period=50, rsi_period=14)
+    df_m1 = calc_dynamic_tp2(df_m1)
     df_m1 = add_m15_context_to_m1(df_m1, df_m15)
     df_m1 = label_elliott_wave(df_m1)
     df_m1 = detect_divergence(df_m1)
     df_m1 = label_pattern(df_m1)
     df_m1 = calc_gain_zscore(df_m1)
     df_m1 = calc_signal_score(df_m1)
-    df_m1 = meta_classifier_filter(df_m1)
+    df_m1 = tag_session(df_m1)
     df_m1 = smart_entry_signal_goldai2025_style(df_m1)
+    df_m1 = apply_session_bias(df_m1)
     return _execute_backtest(df_m1)
 
 if __name__ == "__main__":
