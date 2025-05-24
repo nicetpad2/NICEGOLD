@@ -47,3 +47,6 @@
 - เพิ่มระบบ Spike Guard และ News Filter
 - บันทึก Reason/Context ลง trade log อย่างละเอียด
 - ฟังก์ชัน Walk-Forward Validation และ split folds อัตโนมัติ
+
+## v3.13 QA Patch
+- Reformatted code with Black and adjusted unit tests for quoting changes.

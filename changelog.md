@@ -324,3 +324,7 @@
 - Spike Guard (ATR/WRB) and News Filter modules
 - Trade log now records reason_entry, reason_exit and context fields
 - Walk-Forward backtest utilities `split_folds` and `run_walkforward_backtest`
+
+## [v1.9.49] — 2025-07-19
+### Changed
+- Codebase formatted with Black; tests updated for new quoting style.
