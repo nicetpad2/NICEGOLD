@@ -438,3 +438,7 @@
 - โหมด Aggressive Entry สลับ buy/sell ทุกแท่ง
 ### Changed
 - ปรับ risk_per_trade เป็น 4% และลด min_sl_dist เหลือ 2 จุด
+
+## [v1.9.66] — 2025-08-02
+### Added
+- ฟังก์ชัน `entry_signal_trend_scalp` ใช้ Trend Scalping พร้อม Force Entry

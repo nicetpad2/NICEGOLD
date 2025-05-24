@@ -102,3 +102,6 @@
 
 ## v3.23 QA Patch
 - เพิ่มโหมด Aggressive Entry ใช้สัญญาณสลับทุกแท่งและ lot sizing ใหม่
+
+## v3.24 QA Patch
+- เพิ่มฟังก์ชัน `entry_signal_trend_scalp` ใช้ Trend Scalping พร้อม Force Entry

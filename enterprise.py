@@ -627,6 +627,44 @@ def relaxed_entry_signal(df, force_gap=1):
     return entry_signal_trend_relax(df, min_gap_minutes=0)
 
 
+def entry_signal_trend_scalp(df, force_gap=200):
+    """Trend scalping entry signal with periodic force entry."""
+    logger.info("[Patch] Trend Scalping + Force Entry")
+    df = df.copy()
+    df["entry_signal"] = None
+    atr_threshold = df["atr"].quantile(0.6)
+    trend_buy = (
+        (df["ema_fast"] > df["ema_slow"]) &
+        (df["rsi"] > 51) &
+        (df["adx"] > 12) &
+        (df["atr"] > atr_threshold)
+    )
+    trend_sell = (
+        (df["ema_fast"] < df["ema_slow"]) &
+        (df["rsi"] < 49) &
+        (df["adx"] > 12) &
+        (df["atr"] > atr_threshold)
+    )
+    df.loc[trend_buy, "entry_signal"] = "buy"
+    df.loc[trend_sell, "entry_signal"] = "sell"
+    last_entry = 0
+    for i in range(len(df)):
+        if pd.notna(df["entry_signal"].iloc[i]):
+            last_entry = i
+        elif i - last_entry > force_gap:
+            if df["ema_fast"].iloc[i] > df["ema_slow"].iloc[i]:
+                df.at[i, "entry_signal"] = "buy"
+            else:
+                df.at[i, "entry_signal"] = "sell"
+            last_entry = i
+    logger.info(
+        "[Patch] Trend Scalping Entry: buy=%d, sell=%d",
+        (df["entry_signal"] == "buy").sum(),
+        (df["entry_signal"] == "sell").sum(),
+    )
+    return df
+
+
 def walkforward_run(df, fold_size=3):
     logger.info("[Patch] walkforward_run placeholder")
     results = []
