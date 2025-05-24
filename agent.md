@@ -50,3 +50,8 @@
 
 ## v3.13 QA Patch
 - Reformatted code with Black and adjusted unit tests for quoting changes.
+
+## v3.14 QA Patch
+- เพิ่มฟังก์ชัน `data_quality_check` ตรวจสอบและทำความสะอาดข้อมูลเบื้องต้น
+- เพิ่ม `shap_feature_importance_placeholder` สำหรับแสดงความสำคัญของฟีเจอร์แบบ stub
+- ระบบคำนวณค่าใช้จ่ายคำสั่งซื้อจริง (Spread, Commission, Slippage) และบันทึกลง trade log

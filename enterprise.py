@@ -41,6 +41,12 @@ force_entry_gap = 300  # [Patch] Force entry หากไม่มี order เ�
 trade_start_hour = 8
 trade_end_hour = 23
 
+# [Patch] Commission, Spread, Slippage สมจริง
+SPREAD_POINTS = 80
+SPREAD_VALUE = 0.8
+COMMISSION_PER_LOT = 0.10
+SLIPPAGE = 0.2
+
 # --- Runtime utilities (merged) ---
 
 
@@ -257,6 +263,44 @@ def load_data(path):
     return df
 
 
+def data_quality_check(df):
+    """[Patch] ตรวจสอบและ log คุณภาพข้อมูลเบื้องต้น"""
+    logger.info("[Patch] Data QA: Start checking data quality")
+    required_cols = ["timestamp", "open", "high", "low", "close"]
+    for col in required_cols:
+        if df[col].isnull().any():
+            logger.warning(
+                "[Patch] NaN detected in column %s: %d rows",
+                col,
+                df[col].isnull().sum(),
+            )
+    if df["timestamp"].duplicated().any():
+        dup_count = df["timestamp"].duplicated().sum()
+        logger.warning("[Patch] Duplicated timestamp: %d rows", dup_count)
+        df = df[~df["timestamp"].duplicated(keep="first")].reset_index(drop=True)
+    if not df["timestamp"].is_monotonic_increasing:
+        logger.warning("[Patch] Non-monotonic timestamp detected, sorting")
+        df = df.sort_values("timestamp").reset_index(drop=True)
+    invalid_price = (df["high"] < df["low"]).sum()
+    if invalid_price > 0:
+        logger.warning(
+            "[Patch] %d bars: high < low detected",
+            invalid_price,
+        )
+    price_jump = (df["close"].pct_change().abs() > 0.10).sum()
+    if price_jump > 0:
+        logger.warning("[Patch] %d bars: close jump > 10%% detected", price_jump)
+    orig_len = len(df)
+    df = df.dropna(subset=required_cols).reset_index(drop=True)
+    if len(df) < orig_len:
+        logger.info(
+            "[Patch] Drop %d rows with NaN in required columns",
+            orig_len - len(df),
+        )
+    logger.info("[Patch] Data QA: Complete")
+    return df
+
+
 def rsi(series, period=14):
     """Calculate Relative Strength Index (RSI)."""
     logger.debug("[Patch] Calculating RSI with period %d", period)
@@ -407,6 +451,32 @@ def meta_classifier_filter(
     df = df.copy()
     df["meta_entry"] = df[score_col] >= threshold
     return df
+
+
+def shap_feature_importance_placeholder(
+    df, feature_cols=None, importance_col="shap_importance"
+):
+    """[Patch] SHAP feature importance stub"""
+    logger.info("[Patch] SHAP feature importance: stub mode")
+    if feature_cols is None:
+        feature_cols = [
+            "ema_fast",
+            "ema_slow",
+            "rsi",
+            "atr",
+            "gain_z",
+            "signal_score",
+        ]
+    importances = {col: np.random.uniform(0, 1) for col in feature_cols}
+    s = sum(importances.values())
+    if s > 0:
+        for k in importances:
+            importances[k] /= s
+    logger.info("[Patch] Feature importances (stub): %s", importances)
+    for k, v in importances.items():
+        if k in df.columns:
+            df[f"{importance_col}_{k}"] = v
+    return df, importances
 
 
 def calc_dynamic_tp2(df, base_tp2_mult=3.0, atr_period=1000, tp2_col="tp2_dynamic"):
@@ -677,13 +747,12 @@ class OMSManager:
         elif trade_win is False:
             self.loss_streak += 1
             self.win_streak = 0
-        if self.loss_streak >= oms_recovery_loss:
-            if not self.recovery_mode:
-                self.recovery_mode = True
-                logger.warning(
-                    "[Patch] Recovery mode activated after %d consecutive losses",
-                    self.loss_streak,
-                )
+        if self.loss_streak >= oms_recovery_loss and not self.recovery_mode:
+            self.recovery_mode = True
+            logger.warning(
+                "[Patch] Recovery mode activated after %d consecutive losses",
+                self.loss_streak,
+            )
         if self.recovery_mode and self.win_streak > 2:
             self.recovery_mode = False
             logger.info(
@@ -704,12 +773,54 @@ class OMSManager:
         lot = risk_amount / max(entry_sl_dist, min_sl_dist)
         if self.recovery_mode:
             lot *= recovery_multiplier
-        # [Patch] Boost lot ขณะ win streak
         if self.win_streak >= 2:
             lot *= win_streak_boost
         lot_cap = min(lot_cap, lot_cap_max)
         lot = max(0.01, min(lot, lot_cap))
         return lot
+
+    def check_max_orders(self, open_positions, max_orders=1):
+        if len(open_positions) >= max_orders:
+            logger.warning("[Patch] Max open order limit reached (%d)", max_orders)
+            return False
+        return True
+
+    def audit_log(self):
+        logger.info(
+            "[Patch] OMS Audit: capital=%.2f, peak=%.2f, kill_switch=%s, recovery=%s, win_streak=%d, loss_streak=%d",
+            self.capital,
+            self.peak,
+            self.kill_switch,
+            self.recovery_mode,
+            self.win_streak,
+            self.loss_streak,
+        )
+
+
+def apply_order_costs(
+    entry,
+    sl,
+    tp1,
+    tp2,
+    lot,
+    direction,
+    spread=SPREAD_VALUE,
+    commission=COMMISSION_PER_LOT,
+    slippage=SLIPPAGE,
+):
+    """[Patch] ปรับราคาเข้า/TP/SL ตาม spread, slippage และ commission"""
+    if direction == "buy":
+        entry_adj = entry + spread + np.random.uniform(-slippage, slippage)
+        sl_adj = sl + spread
+        tp1_adj = tp1 + spread
+        tp2_adj = tp2 + spread
+    else:
+        entry_adj = entry - spread - np.random.uniform(-slippage, slippage)
+        sl_adj = sl - spread
+        tp1_adj = tp1 - spread
+        tp2_adj = tp2 - spread
+    com = 2 * commission * lot * 100
+    return entry_adj, sl_adj, tp1_adj, tp2_adj, com
 
 
 def _execute_backtest(df):
@@ -730,6 +841,7 @@ def _execute_backtest(df):
                 "dd": (oms.peak - capital) / oms.peak,
             }
         )
+        oms.audit_log()
         if oms.kill_switch:
             logger.info("[Patch] OMS: Stop trading (kill switch)")
             break
@@ -739,6 +851,7 @@ def _execute_backtest(df):
             position is None
             and row["entry_signal"] in ["buy", "sell"]
             and (i - last_entry_idx) >= cooldown_bars
+            and oms.check_max_orders([p for p in [position] if p])
         ):
             direction = row["entry_signal"]
             price_range = max(row["high"] - row["low"], 1e-6)
@@ -782,6 +895,9 @@ def _execute_backtest(df):
                         adx_strong,
                     )
             lot = oms.smart_lot(capital, risk_amount, abs(entry - sl))
+            entry, sl, tp1, tp2, com = apply_order_costs(
+                entry, sl, tp1, tp2, lot, direction
+            )
             mode = "RECOVERY" if oms.recovery_mode else "NORMAL"
             position = {
                 "entry_time": row["timestamp"],
@@ -799,10 +915,11 @@ def _execute_backtest(df):
                 "context": f"Spike={row.get('spike_guard')}, News={row.get('news_guard')}",
                 "dd_at_entry": (oms.peak - capital) / oms.peak,
                 "peak_equity": oms.peak,
+                "commission": com,
             }
             last_entry_idx = i
             logger.info(
-                "[Patch] Entry: %s at %.2f, SL %.2f, TP1 %.2f, TP2 %.2f, Lot %.3f Mode %s",
+                "[Patch] Entry: %s at %.2f, SL %.2f, TP1 %.2f, TP2 %.2f, Lot %.3f Mode %s (spread %.1f, slippage %.1f, com %.2f)",
                 direction,
                 entry,
                 sl,
@@ -810,6 +927,9 @@ def _execute_backtest(df):
                 tp2,
                 lot,
                 mode,
+                SPREAD_VALUE,
+                SLIPPAGE,
+                com,
             )
 
         if position:
@@ -847,6 +967,9 @@ def _execute_backtest(df):
                             "news_guard": row.get("news_guard"),
                             "risk": position.get("risk"),
                             "oms_mode": position.get("mode"),
+                            "commission": position.get("commission", 0),
+                            "spread": SPREAD_VALUE,
+                            "slippage": SLIPPAGE,
                         }
                     )
                     logger.info(
@@ -866,7 +989,7 @@ def _execute_backtest(df):
                     position["lot"]
                     * abs(position["tp2"] - position["entry"])
                     * (0.5 if position["tp1_hit"] else 1)
-                )
+                ) - position.get("commission", 0)
                 capital += pnl
                 trades.append(
                     {
@@ -887,6 +1010,9 @@ def _execute_backtest(df):
                         "news_guard": row.get("news_guard"),
                         "risk": position.get("risk"),
                         "oms_mode": position.get("mode"),
+                        "commission": position.get("commission", 0),
+                        "spread": SPREAD_VALUE,
+                        "slippage": SLIPPAGE,
                     }
                 )
                 logger.info("[Patch] TP2 at %.2f (+%.2f$)", position["tp2"], pnl)
@@ -901,7 +1027,9 @@ def _execute_backtest(df):
                 else row["high"] >= position["sl"]
             )
             if hit_sl:
-                pnl = -position["lot"] * abs(position["entry"] - position["sl"])
+                pnl = -position["lot"] * abs(
+                    position["entry"] - position["sl"]
+                ) - position.get("commission", 0)
                 capital += pnl
                 trades.append(
                     {
@@ -922,6 +1050,9 @@ def _execute_backtest(df):
                         "news_guard": row.get("news_guard"),
                         "risk": position.get("risk"),
                         "oms_mode": position.get("mode"),
+                        "commission": position.get("commission", 0),
+                        "spread": SPREAD_VALUE,
+                        "slippage": SLIPPAGE,
                     }
                 )
                 logger.info("[Patch] SL/BE at %.2f (%.2f$)", position["sl"], pnl)
@@ -1009,6 +1140,7 @@ def run_backtest(path=None):
     if path is None:
         path = M1_PATH
     df = load_data(path)
+    df = data_quality_check(df)
     df = calc_indicators(df)
     df = calc_dynamic_tp2(df)
     df = label_elliott_wave(df)
@@ -1016,6 +1148,7 @@ def run_backtest(path=None):
     df = label_pattern(df)
     df = calc_gain_zscore(df)
     df = calc_signal_score(df)
+    df, _ = shap_feature_importance_placeholder(df)
     df = tag_session(df)
     df = tag_spike_guard(df)
     df = tag_news_event(df)
@@ -1031,7 +1164,9 @@ def run_backtest_multi_tf(path_m1=M1_PATH, path_m15=M15_PATH):
         "[Patch] run_backtest_multi_tf called with paths %s, %s", path_m1, path_m15
     )
     df_m1 = load_data(path_m1)
+    df_m1 = data_quality_check(df_m1)
     df_m15 = load_data(path_m15)
+    df_m15 = data_quality_check(df_m15)
     df_m15 = calc_indicators(
         df_m15, ema_fast_period=50, ema_slow_period=200, rsi_period=14
     )
@@ -1045,6 +1180,7 @@ def run_backtest_multi_tf(path_m1=M1_PATH, path_m15=M15_PATH):
     df_m1 = label_pattern(df_m1)
     df_m1 = calc_gain_zscore(df_m1)
     df_m1 = calc_signal_score(df_m1)
+    df_m1, _ = shap_feature_importance_placeholder(df_m1)
     df_m1 = tag_session(df_m1)
     df_m1 = tag_spike_guard(df_m1)
     df_m1 = tag_news_event(df_m1)
@@ -1072,6 +1208,7 @@ def run_walkforward_backtest(df, n_folds=5, config_list=None):
     for i, fold_df in enumerate(folds):
         logger.info(f"[Patch] --- Fold #{i+1}/{n_folds} ---")
         fold_config = config_list[i] if config_list and len(config_list) > i else None
+        fold_df = data_quality_check(fold_df)
         fold_df = calc_indicators(fold_df)
         fold_df = calc_dynamic_tp2(fold_df)
         fold_df = label_elliott_wave(fold_df)
@@ -1079,6 +1216,7 @@ def run_walkforward_backtest(df, n_folds=5, config_list=None):
         fold_df = label_pattern(fold_df)
         fold_df = calc_gain_zscore(fold_df)
         fold_df = calc_signal_score(fold_df)
+        fold_df, _ = shap_feature_importance_placeholder(fold_df)
         fold_df = tag_session(fold_df)
         fold_df = tag_spike_guard(fold_df)
         fold_df = tag_news_event(fold_df)
