@@ -312,7 +312,8 @@ class TestDynamicTP2Session(unittest.TestCase):
         for f in os.listdir("."):  # cleanup
             if f.startswith("trade_log_") or f.startswith("equity_curve_"):
                 os.remove(f)
-        self.assertAlmostEqual(trades["tp2"].iloc[0], 1 + 2.0 * 1.5)
+        expected_tp2 = 1 + enterprise.SPREAD_VALUE + 2.0 * 1.5
+        self.assertAlmostEqual(trades["tp2"].iloc[0], expected_tp2)
 
 
 class TestSpikeNewsGuard(unittest.TestCase):
@@ -348,6 +349,50 @@ class TestSpikeNewsGuard(unittest.TestCase):
         df = pd.DataFrame({"a": range(10)})
         folds = enterprise.split_folds(df, n_folds=3)
         self.assertEqual(len(folds), 3)
+
+    def test_data_quality_check_basic(self):
+        df = pd.DataFrame(
+            {
+                "timestamp": [pd.Timestamp("2020-01-01"), pd.Timestamp("2020-01-01")],
+                "open": [1.0, np.nan],
+                "high": [1.0, 2.0],
+                "low": [0.9, 0.8],
+                "close": [1.0, 2.0],
+            }
+        )
+        res = enterprise.data_quality_check(df)
+        self.assertEqual(len(res), 1)
+
+    def test_shap_feature_importance_placeholder(self):
+        df = pd.DataFrame(
+            {
+                "ema_fast": [1.0],
+                "ema_slow": [2.0],
+                "rsi": [50.0],
+                "atr": [1.0],
+                "gain_z": [0.1],
+                "signal_score": [1.0],
+            }
+        )
+        res, imp = enterprise.shap_feature_importance_placeholder(df)
+        for c in ["ema_fast", "ema_slow", "rsi", "atr", "gain_z", "signal_score"]:
+            self.assertIn(f"shap_importance_{c}", res.columns)
+        self.assertAlmostEqual(sum(imp.values()), 1.0, places=5)
+
+    def test_apply_order_costs(self):
+        entry, sl, tp1, tp2, com = enterprise.apply_order_costs(
+            1.0, 0.9, 1.1, 1.2, 0.1, "buy", spread=0.1, commission=0.1, slippage=0.0
+        )
+        self.assertGreater(entry, 1.0)
+        self.assertAlmostEqual(com, 2 * 0.1 * 0.1 * 100)
+
+    def test_oms_audit_and_check(self):
+        oms = enterprise.OMSManager(100, 0.5, 1.0)
+        with self.assertLogs(enterprise.logger, level="INFO") as cm:
+            oms.audit_log()
+        self.assertTrue(any("OMS Audit" in m for m in cm.output))
+        self.assertFalse(oms.check_max_orders([1], max_orders=1))
+        self.assertTrue(oms.check_max_orders([], max_orders=1))
 
     def test_run_walkforward_backtest_returns(self):
         df = pd.DataFrame(

@@ -328,3 +328,9 @@
 ## [v1.9.49] — 2025-07-19
 ### Changed
 - Codebase formatted with Black; tests updated for new quoting style.
+
+## [v1.9.50] — 2025-07-20
+### Added
+- Data quality check pipeline and logging
+- Stub SHAP feature importance interface
+- Realistic order costs with spread, commission, slippage and OMS audit log
