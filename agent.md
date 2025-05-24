@@ -55,3 +55,8 @@
 - เพิ่มฟังก์ชัน `data_quality_check` ตรวจสอบและทำความสะอาดข้อมูลเบื้องต้น
 - เพิ่ม `shap_feature_importance_placeholder` สำหรับแสดงความสำคัญของฟีเจอร์แบบ stub
 - ระบบคำนวณค่าใช้จ่ายคำสั่งซื้อจริง (Spread, Commission, Slippage) และบันทึกลง trade log
+
+## v3.15 QA Patch
+- เพิ่ม debug log แสดงสถานะขณะถือ position ใน `_execute_backtest`
+- บันทึกค่า hit TP/SL เพื่อช่วยตรวจสอบ logic
+- ปิดสถานะอัตโนมัติเมื่อถือครบ 50 แท่ง

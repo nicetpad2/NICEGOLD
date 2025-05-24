@@ -334,3 +334,8 @@
 - Data quality check pipeline and logging
 - Stub SHAP feature importance interface
 - Realistic order costs with spread, commission, slippage and OMS audit log
+
+## [v1.9.51] — 2025-07-21
+### Added
+- Debug log ขณะถือสถานะใน `_execute_backtest`
+- ตรวจสอบ hit TP/SL และปิดบังคับเมื่อถือครบ 50 แท่ง

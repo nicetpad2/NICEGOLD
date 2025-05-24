@@ -909,6 +909,7 @@ def _execute_backtest(df):
                 "lot": lot,
                 "tp1_hit": False,
                 "breakeven": False,
+                "entry_idx": i,
                 "reason_entry": f"{row.get('wave_phase')}+{row.get('pattern_label')}+{row.get('divergence')}+score={row.get('signal_score')}+session={row.get('session')}",
                 "mode": mode,
                 "risk": risk_amount,
@@ -933,57 +934,111 @@ def _execute_backtest(df):
             )
 
         if position:
-            # Partial TP1
-            if not position["tp1_hit"]:
-                hit_tp1 = (
-                    row["high"] >= position["tp1"]
-                    if position["type"] == "buy"
-                    else row["low"] <= position["tp1"]
-                )
-                if hit_tp1:
-                    pnl = (
-                        position["lot"] * abs(position["tp1"] - position["entry"]) * 0.5
-                    )
-                    capital += pnl
-                    position["sl"] = position["entry"]
-                    position["tp1_hit"] = True
-                    position["breakeven"] = True
-                    trades.append(
-                        {
-                            **position,
-                            "exit_time": row["timestamp"],
-                            "exit": "TP1",
-                            "pnl": pnl,
-                            "capital": capital,
-                            "reason_exit": "Partial TP1",
-                            "reason_entry": position.get("reason_entry", ""),
-                            "context": position.get("context", ""),
-                            "wave_phase": row.get("wave_phase"),
-                            "pattern_label": row.get("pattern_label"),
-                            "divergence": row.get("divergence"),
-                            "signal_score": row.get("signal_score"),
-                            "session": row.get("session"),
-                            "spike_guard": row.get("spike_guard"),
-                            "news_guard": row.get("news_guard"),
-                            "risk": position.get("risk"),
-                            "oms_mode": position.get("mode"),
-                            "commission": position.get("commission", 0),
-                            "spread": SPREAD_VALUE,
-                            "slippage": SLIPPAGE,
-                        }
-                    )
-                    logger.info(
-                        "[Patch] Partial TP1 at %.2f (+%.2f$)", position["tp1"], pnl
-                    )
-                    oms.update(capital, pnl > 0)
-                    continue
+            logger.debug(
+                "[Patch][Debug] Holding position %s: entry=%.2f, SL=%.2f, TP1=%.2f, TP2=%.2f, lot=%.3f, close=%.2f, high=%.2f, low=%.2f, idx=%d",
+                position["type"],
+                position["entry"],
+                position["sl"],
+                position["tp1"],
+                position["tp2"],
+                position["lot"],
+                row["close"],
+                row["high"],
+                row["low"],
+                i,
+            )
 
-            # TP2
+            hit_tp1 = (
+                row["high"] >= position["tp1"]
+                if position["type"] == "buy"
+                else row["low"] <= position["tp1"]
+            )
             hit_tp2 = (
                 row["high"] >= position["tp2"]
                 if position["type"] == "buy"
                 else row["low"] <= position["tp2"]
             )
+            hit_sl = (
+                row["low"] <= position["sl"]
+                if position["type"] == "buy"
+                else row["high"] >= position["sl"]
+            )
+            logger.debug(
+                "[Patch][Debug] Check TP/SL: TP1=%.2f, TP2=%.2f, SL=%.2f, High=%.2f, Low=%.2f, HitTP1=%s, HitTP2=%s, HitSL=%s",
+                position["tp1"],
+                position["tp2"],
+                position["sl"],
+                row["high"],
+                row["low"],
+                hit_tp1,
+                hit_tp2,
+                hit_sl,
+            )
+
+            max_holding_bars = 50
+            if i - position.get("entry_idx", i) >= max_holding_bars:
+                logger.warning("[Patch] Force close position after %d bars", max_holding_bars)
+                pnl = (
+                    (row["close"] - position["entry"]) * position["lot"] * (100 if position["type"] == "buy" else -100)
+                ) - position.get("commission", 0)
+                capital += pnl
+                trades.append(
+                    {
+                        **position,
+                        "exit_time": row["timestamp"],
+                        "exit": "ForceClose",
+                        "pnl": pnl,
+                        "capital": capital,
+                        "reason_exit": "Force close after max bars",
+                        "commission": position.get("commission", 0),
+                        "spread": SPREAD_VALUE,
+                        "slippage": SLIPPAGE,
+                    }
+                )
+                oms.update(capital, pnl > 0)
+                position = None
+                continue
+
+            # Partial TP1
+            if not position["tp1_hit"] and hit_tp1:
+                pnl = (
+                    position["lot"] * abs(position["tp1"] - position["entry"]) * 0.5
+                )
+                capital += pnl
+                position["sl"] = position["entry"]
+                position["tp1_hit"] = True
+                position["breakeven"] = True
+                trades.append(
+                    {
+                        **position,
+                        "exit_time": row["timestamp"],
+                        "exit": "TP1",
+                        "pnl": pnl,
+                        "capital": capital,
+                        "reason_exit": "Partial TP1",
+                        "reason_entry": position.get("reason_entry", ""),
+                        "context": position.get("context", ""),
+                        "wave_phase": row.get("wave_phase"),
+                        "pattern_label": row.get("pattern_label"),
+                        "divergence": row.get("divergence"),
+                        "signal_score": row.get("signal_score"),
+                        "session": row.get("session"),
+                        "spike_guard": row.get("spike_guard"),
+                        "news_guard": row.get("news_guard"),
+                        "risk": position.get("risk"),
+                        "oms_mode": position.get("mode"),
+                        "commission": position.get("commission", 0),
+                        "spread": SPREAD_VALUE,
+                        "slippage": SLIPPAGE,
+                    }
+                )
+                logger.info(
+                    "[Patch] Partial TP1 at %.2f (+%.2f$)", position["tp1"], pnl
+                )
+                oms.update(capital, pnl > 0)
+                continue
+
+            # TP2
             if hit_tp2:
                 pnl = (
                     position["lot"]
@@ -1021,11 +1076,6 @@ def _execute_backtest(df):
                 continue
 
             # Stop Loss / Breakeven
-            hit_sl = (
-                row["low"] <= position["sl"]
-                if position["type"] == "buy"
-                else row["high"] >= position["sl"]
-            )
             if hit_sl:
                 pnl = -position["lot"] * abs(
                     position["entry"] - position["sl"]
