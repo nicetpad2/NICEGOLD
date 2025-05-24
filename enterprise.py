@@ -1200,6 +1200,67 @@ def calc_adaptive_lot(equity, adx, recovery_mode=False, win_streak=0):
     )
     return lot
 
+def smart_entry_signal_enterprise_v1(df, force_entry_gap=300):
+    """
+    [Patch] Multi-confirm Entry: EMA, ADX, RSI, Divergence, Gain_Z, Wave_Phase
+    - Force Entry มี filter (gain_z/divergence)
+    - Recovery Mode strict confirm
+    - QA Monitor loss streak/recovery duration
+    - Trailing Winner (ต่อยอดใน exit logic)
+    """
+    import numpy as np
+    import pandas as pd
+    logger.info("[Patch] Running smart_entry_signal_enterprise_v1")
+    df = df.copy()
+    df["entry_signal"] = None
+    entry_long = (
+        (df["ema_fast"] > df["ema_slow"])
+        & (df["adx"] > 12)
+        & (df["rsi"] > 51)
+        & (
+            (df["divergence"] == "bullish") |
+            (df["gain_z"] > 0.5) |
+            (df["wave_phase"].isin(["trough"]))
+        )
+    )
+    entry_short = (
+        (df["ema_fast"] < df["ema_slow"])
+        & (df["adx"] > 12)
+        & (df["rsi"] < 49)
+        & (
+            (df["divergence"] == "bearish") |
+            (df["gain_z"] < -0.5) |
+            (df["wave_phase"].isin(["peak"]))
+        )
+    )
+    df.loc[entry_long, "entry_signal"] = "buy"
+    df.loc[entry_short, "entry_signal"] = "sell"
+    logger.info(
+        "[Patch] Multi-confirm Entry: buy=%d, sell=%d",
+        (df["entry_signal"] == "buy").sum(),
+        (df["entry_signal"] == "sell").sum(),
+    )
+    last_entry = 0
+    for i in range(len(df)):
+        if pd.notna(df["entry_signal"].iloc[i]):
+            last_entry = i
+        elif i - last_entry > force_entry_gap:
+            if (
+                (df["gain_z"].iloc[i] > 0)
+                or (df["divergence"].iloc[i] == "bullish" and df["ema_fast"].iloc[i] > df["ema_slow"].iloc[i])
+                or (df["gain_z"].iloc[i] < 0)
+                or (df["divergence"].iloc[i] == "bearish" and df["ema_fast"].iloc[i] < df["ema_slow"].iloc[i])
+            ):
+                direction = "buy" if df["ema_fast"].iloc[i] > df["ema_slow"].iloc[i] else "sell"
+                df.at[i, "entry_signal"] = direction
+                logger.info("[Patch] Force Entry (%s) at %s", direction, df["timestamp"].iloc[i])
+                last_entry = i
+    logger.info(
+        "[Patch] Entry signal (all): buy=%d, sell=%d",
+        (df["entry_signal"] == "buy").sum(),
+        (df["entry_signal"] == "sell").sum(),
+    )
+    return df
 
 def smart_entry_signal_goldai2025_style(df):
     """Entry signal logic for GoldAI2025."""
@@ -1372,6 +1433,16 @@ def _execute_backtest(df):
             and oms.check_max_orders([p for p in [position] if p])
         ):
             direction = row["entry_signal"]
+            # [Patch] Recovery Mode Strict Confirm
+            if oms.recovery_mode:
+                valid = False
+                if direction == "buy":
+                    valid = (row.get("divergence") == "bullish") or (row.get("gain_z", 0) > 0)
+                else:
+                    valid = (row.get("divergence") == "bearish") or (row.get("gain_z", 0) < 0)
+                if not valid:
+                    logger.info("[Patch QA] Recovery confirm fail at %s, skip entry", row["timestamp"])
+                    continue
             price_range = max(row["high"] - row["low"], 1e-6)
             upper_wick_ratio = (row["high"] - row["close"]) / price_range
             lower_wick_ratio = (row["close"] - row["low"]) / price_range
@@ -1480,6 +1551,10 @@ def _execute_backtest(df):
                 lot,
                 com,
             )
+        if oms.loss_streak > 6:
+            logger.warning("[Patch QA] Loss streak > 6 (current: %d)", oms.loss_streak)
+        if oms.recovery_mode and oms.loss_streak > 10:
+            logger.warning("[Patch QA] Recovery mode duration > 10 trades")
 
         if position:
             logger.debug(
@@ -1822,8 +1897,12 @@ def run_backtest(path=None):
     df = load_data(path)
     df = data_quality_check(df)
     df = calc_indicators(df)
+    df = calc_dynamic_tp2(df)
+    df = label_elliott_wave(df)
+    df = detect_divergence(df)
+    df = calc_gain_zscore(df)
     log_ram_usage("before_execute_backtest")
-    df = multi_session_trend_scalping(df)
+    df = smart_entry_signal_enterprise_v1(df)
     trades = _execute_backtest(df)
     if not trades.empty and "exit" in trades.columns:
         loss_indices = trades.loc[trades["exit"].isin(["SL", "ForceClose"]), "entry_idx"].tolist()

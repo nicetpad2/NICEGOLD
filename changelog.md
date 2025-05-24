@@ -413,3 +413,10 @@
 - `calc_indicators`, `label_elliott_wave`, `detect_divergence`, `calc_gain_zscore`, `calc_signal_score` รองรับโหมดใช้แรมสูง
 - บันทึกการใช้ RAM ก่อนและหลัง `_execute_backtest`
 
+
+## [v1.9.62] — 2025-07-31
+### Added
+- ฟังก์ชัน `smart_entry_signal_enterprise_v1` แบบ Multi-confirm และ Force Entry filter
+### Changed
+- `_execute_backtest` เพิ่ม Recovery strict confirm และ QA monitor
+- `run_backtest` ใช้สัญญาณใหม่
