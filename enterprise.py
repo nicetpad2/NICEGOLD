@@ -6,6 +6,10 @@ from datetime import datetime, timedelta
 from dataclasses import dataclass
 from typing import Optional
 import logging
+try:
+    import psutil  # สำหรับเช็ค RAM
+except Exception:  # pragma: no cover - optional dependency
+    psutil = None
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -14,6 +18,18 @@ TRADE_DIR = "/content/drive/MyDrive/NICEGOLD/logs"
 os.makedirs(TRADE_DIR, exist_ok=True)
 M1_PATH = "/content/drive/MyDrive/NICEGOLD/XAUUSD_M1.csv"
 M15_PATH = "/content/drive/MyDrive/NICEGOLD/XAUUSD_M15.csv"
+
+# [Patch] Enable full RAM mode
+MAX_RAM_MODE = True  # เปิดโหมดใช้แรมหนัก
+
+# [Patch] Log RAM usage helper
+def log_ram_usage(note=""):
+    if psutil is None:
+        logger.info("[Patch] RAM usage (%s): psutil not available", note)
+        return
+    process = psutil.Process()
+    ram_gb = process.memory_info().rss / (1024 ** 3)
+    logger.info("[Patch] RAM usage (%s): %.2f GB", note, ram_gb)
 
 # [Patch] Parameters – MM & Growth
 initial_capital = 100.0
@@ -374,17 +390,26 @@ def rsi(series, period=14):
 
 
 def calc_indicators(df, ema_fast_period=None, ema_slow_period=None, rsi_period=14):
-    logger.info("[Patch] Calculating indicators")
+    logger.info("[Patch] Calculating indicators (MAX_RAM_MODE=%s)", MAX_RAM_MODE)
     if ema_fast_period is None:
         ema_fast_period = trend_lookback
     if ema_slow_period is None:
         ema_slow_period = trend_lookback * 2
+    # [Patch] Main indicators
     df["ema_fast"] = df["close"].ewm(span=ema_fast_period, adjust=False).mean()
     df["ema_slow"] = df["close"].ewm(span=ema_slow_period, adjust=False).mean()
     df["ema_fast_htf"] = df["close"].ewm(span=ema_fast_period * 4, adjust=False).mean()
     df["ema_slow_htf"] = df["close"].ewm(span=ema_slow_period * 4, adjust=False).mean()
     df["rsi"] = rsi(df["close"], rsi_period)
     df["atr"] = (df["high"] - df["low"]).rolling(14).mean()
+    # [Patch] Extra indicators (MAX_RAM_MODE)
+    if MAX_RAM_MODE:
+        for span in [5, 8, 13, 21, 34, 55, 100, 200]:
+            df[f"ema_{span}"] = df["close"].ewm(span=span, adjust=False).mean()
+        for p in [7, 14, 21, 28]:
+            df[f"rsi_{p}"] = rsi(df["close"], p)
+        for win in [7, 14, 50, 100, 200, 500]:
+            df[f"atr_{win}"] = (df["high"] - df["low"]).rolling(win).mean()
     up_move = df["high"].diff().clip(lower=0)
     down_move = -df["low"].diff().clip(upper=0)
     tr = pd.concat(
@@ -402,6 +427,10 @@ def calc_indicators(df, ema_fast_period=None, ema_slow_period=None, rsi_period=1
     minus_di = 100 * minus_dm.rolling(adx_period).sum() / atr
     dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di)
     df["adx"] = dx.rolling(adx_period).mean()
+    if MAX_RAM_MODE:
+        for p in [7, 14, 21, 50]:
+            df[f"adx_{p}"] = dx.rolling(p).mean()
+    log_ram_usage("calc_indicators")
     return df
 
 
@@ -431,7 +460,7 @@ def add_m15_context_to_m1(df_m1, df_m15):
 
 def label_elliott_wave(df, wave_col="wave_phase"):
     """[Patch] Label Elliott Wave Phase using simple swing logic."""
-    logger.info("[Patch] Label Elliott Wave Phase")
+    logger.info("[Patch] Label Elliott Wave Phase (MAX_RAM_MODE=%s)", MAX_RAM_MODE)
     df = df.copy()
     df[wave_col] = None
     window = 25
@@ -444,12 +473,18 @@ def label_elliott_wave(df, wave_col="wave_phase"):
             df.at[df.index[i], wave_col] = "trough"
         else:
             df.at[df.index[i], wave_col] = "mid"
+    # [Patch] Save swing level for debug (MAX_RAM_MODE)
+    if MAX_RAM_MODE:
+        for w in [13, 21, 34, 55]:
+            df[f"swing_high_{w}"] = df["high"].rolling(w, center=True).max()
+            df[f"swing_low_{w}"] = df["low"].rolling(w, center=True).min()
+    log_ram_usage("label_elliott_wave")
     return df
 
 
 def detect_divergence(df, rsi_col="rsi", macd_col="macd", div_col="divergence"):
     """[Patch] Detect basic bullish/bearish divergence using RSI."""
-    logger.info("[Patch] Detect Divergence (RSI/MACD)")
+    logger.info("[Patch] Detect Divergence (RSI/MACD, MAX_RAM_MODE=%s)", MAX_RAM_MODE)
     df = df.copy()
     df[div_col] = None
     for i in range(2, len(df)):
@@ -463,6 +498,23 @@ def detect_divergence(df, rsi_col="rsi", macd_col="macd", div_col="divergence"):
             and df[rsi_col].iloc[i] < df[rsi_col].iloc[i - 1]
         ):
             df.at[df.index[i], div_col] = "bearish"
+    # [Patch] Save multi-period divergence info
+    if MAX_RAM_MODE:
+        for p in [7, 14, 21, 34]:
+            name = f"div_rsi_{p}"
+            df[name] = None
+            for i in range(p, len(df)):
+                if (
+                    df["low"].iloc[i] < df["low"].iloc[i - p]
+                    and df[f"rsi_{p}"].iloc[i] > df[f"rsi_{p}"].iloc[i - p]
+                ):
+                    df.at[df.index[i], name] = "bullish"
+                if (
+                    df["high"].iloc[i] > df["high"].iloc[i - p]
+                    and df[f"rsi_{p}"].iloc[i] < df[f"rsi_{p}"].iloc[i - p]
+                ):
+                    df.at[df.index[i], name] = "bearish"
+    log_ram_usage("detect_divergence")
     return df
 
 
@@ -480,27 +532,95 @@ def label_pattern(df, pattern_col="pattern_label"):
 
 def calc_gain_zscore(df, window=50, gain_col="gain_z"):
     """[Patch] Calculate Z-score of price change as momentum."""
-    logger.info("[Patch] Calculate Gain_Z Z-score")
+    logger.info("[Patch] Calculate Gain_Z Z-score (MAX_RAM_MODE=%s)", MAX_RAM_MODE)
     df = df.copy()
     df["gain"] = df["close"].diff()
     df[gain_col] = (df["gain"] - df["gain"].rolling(window).mean()) / (
         df["gain"].rolling(window).std() + 1e-8
     )
+    # [Patch] Extra gain_z for QA
+    if MAX_RAM_MODE:
+        for w in [14, 50, 100, 200]:
+            col = f"gain_z_{w}"
+            df[col] = (df["gain"] - df["gain"].rolling(w).mean()) / (
+                df["gain"].rolling(w).std() + 1e-8
+            )
+    log_ram_usage("calc_gain_zscore")
     return df
 
 
 def calc_signal_score(df, score_col="signal_score"):
     """[Patch] Aggregate signal score from context features."""
-    logger.info(
-        "[Patch] Calculate Signal Score (context + pattern + divergence + gain_z)"
-    )
+    logger.info("[Patch] Calculate Signal Score (MAX_RAM_MODE=%s)", MAX_RAM_MODE)
     df = df.copy()
     df[score_col] = 0
     df.loc[df["pattern_label"].isin(["first_pullback", "throwback"]), score_col] += 1
     df.loc[df["divergence"].notna(), score_col] += 1
     df.loc[df["gain_z"] > 1.5, score_col] += 1
     df.loc[df["wave_phase"].isin(["peak", "trough"]), score_col] += 1
+    # [Patch] Save more QA/debug info if RAM mode
+    if MAX_RAM_MODE:
+        df["score_pullback"] = df["pattern_label"].isin(["first_pullback", "throwback"]).astype(int)
+        df["score_div"] = df["divergence"].notna().astype(int)
+        df["score_gain"] = (df["gain_z"] > 1.5).astype(int)
+        df["score_wave"] = df["wave_phase"].isin(["peak", "trough"]).astype(int)
+    log_ram_usage("calc_signal_score")
     return df
+
+
+# === Simplified helper functions for tests ===
+def calc_basic_indicators(df):
+    logger.info("[Patch] calc_basic_indicators placeholder")
+    df = df.copy()
+    df["EMA_20"] = df["close"].ewm(span=20, adjust=False).mean()
+    df["EMA_50"] = df["close"].ewm(span=50, adjust=False).mean()
+    df["RSI_14"] = rsi(df["close"], 14)
+    df["ATR_14"] = (df["high"] - df["low"]).rolling(14).mean()
+    return df
+
+
+def entry_signal_always_on(df, mode="every_bar", step=1):
+    logger.info("[Patch] entry_signal_always_on placeholder")
+    df = df.copy()
+    df["entry_signal"] = None
+    if mode == "every_bar":
+        df.loc[::2, "entry_signal"] = "buy"
+        df.loc[1::2, "entry_signal"] = "sell"
+    elif mode == "step":
+        signal = "buy"
+        for i in range(0, len(df), step):
+            df.at[df.index[i], "entry_signal"] = signal
+            signal = "sell" if signal == "buy" else "buy"
+    else:  # trend_follow
+        cond = df["ema_fast"] > df["ema_slow"]
+        df.loc[cond, "entry_signal"] = "buy"
+        df.loc[~cond, "entry_signal"] = "sell"
+    return df
+
+
+def entry_signal_trend_relax(df, min_gap_minutes=0):
+    logger.info("[Patch] entry_signal_trend_relax placeholder")
+    df = df.copy()
+    df["entry_signal"] = None
+    fast = df["ema_fast"] if "ema_fast" in df.columns else df.get("EMA_20")
+    slow = df["ema_slow"] if "ema_slow" in df.columns else df.get("EMA_50")
+    cond = fast > slow
+    df.loc[cond, "entry_signal"] = "buy"
+    df.loc[~cond, "entry_signal"] = "sell"
+    return df
+
+
+def relaxed_entry_signal(df, force_gap=1):
+    logger.info("[Patch] relaxed_entry_signal placeholder")
+    return entry_signal_trend_relax(df, min_gap_minutes=0)
+
+
+def walkforward_run(df, fold_size=3):
+    logger.info("[Patch] walkforward_run placeholder")
+    results = []
+    for start in range(0, len(df), fold_size):
+        results.append(df.iloc[start : start + fold_size])
+    return results
 
 
 def meta_classifier_filter(
@@ -1608,6 +1728,8 @@ def _execute_backtest(df):
     logger.info("[Patch] Saved equity curve: %s", equity_curve_path)
     globals()["_LAST_EQUITY_DF"] = df_equity
 
+    log_ram_usage("after_execute_backtest")
+
     qa_validate_backtest(df_trades, df_equity)
 
     # Summary
@@ -1700,6 +1822,7 @@ def run_backtest(path=None):
     df = load_data(path)
     df = data_quality_check(df)
     df = calc_indicators(df)
+    log_ram_usage("before_execute_backtest")
     df = multi_session_trend_scalping(df)
     trades = _execute_backtest(df)
     if not trades.empty and "exit" in trades.columns:

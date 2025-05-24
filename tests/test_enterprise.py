@@ -28,8 +28,14 @@ class TestEnterprise(unittest.TestCase):
             }
         )
         res = enterprise.calc_indicators(df)
-        for col in ["ema_fast", "ema_slow", "rsi", "atr", "adx"]:
+        for col in ["ema_fast", "ema_slow", "rsi", "atr", "adx", "ema_55", "rsi_14"]:
             self.assertIn(col, res.columns)
+
+    def test_log_ram_usage_logs(self):
+        logger = enterprise.logger
+        with self.assertLogs(logger, level="INFO") as cm:
+            enterprise.log_ram_usage("test")
+        self.assertTrue(any("RAM usage" in msg for msg in cm.output))
 
     def test_rsi_function(self):
         ser = pd.Series([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], dtype=float)

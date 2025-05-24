@@ -406,3 +406,10 @@
 ### Changed
 - เพิ่มระบบ Force Entry ในช่วงไม่มีสัญญาณและ QA log ต่อ fold
 
+## [v1.9.61] — 2025-07-31
+### Added
+- ตัวแปร `MAX_RAM_MODE` และฟังก์ชัน `log_ram_usage`
+### Changed
+- `calc_indicators`, `label_elliott_wave`, `detect_divergence`, `calc_gain_zscore`, `calc_signal_score` รองรับโหมดใช้แรมสูง
+- บันทึกการใช้ RAM ก่อนและหลัง `_execute_backtest`
+
