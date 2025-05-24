@@ -6,7 +6,6 @@ from datetime import datetime, timedelta
 from dataclasses import dataclass
 from typing import Optional
 import logging
-from walk_forward_engine import walk_forward_run
 try:
     import psutil  # สำหรับเช็ค RAM
 except Exception:  # pragma: no cover - optional dependency
@@ -54,7 +53,7 @@ trend_lookback = 25  # [Patch] เร็วขึ้น (trend สั้นล�
 adx_period = 14
 adx_thresh = 12  # [Patch] Relax adx guard
 adx_strong = 23  # [Patch] ปรับ adx strong
-force_entry_gap = 100  # [Patch] Force entry หากไม่มี order เกิน 100 แท่ง
+force_entry_gap = 300  # [Patch] Force entry หากไม่มี order เกิน 300 แท่ง
 trade_start_hour = 8
 trade_end_hour = 23
 
@@ -63,15 +62,6 @@ SPREAD_POINTS = 80
 SPREAD_VALUE = 0.8
 COMMISSION_PER_LOT = 0.10
 SLIPPAGE = 0.2
-
-# [QA] Config defaults for unit tests
-strategy_mode = "ib_commission_mode"
-partial_close_pct = 0.6
-enable_micro_sl_exit = True
-enable_auto_lot_scaling = True
-enable_equity_tp_sl_adjuster = True
-
-_PREV_ENTRY_COUNT = None
 
 # --- Runtime utilities (merged) ---
 
@@ -158,13 +148,11 @@ def generate_signal(
     return False
 
 
-def calculate_position_size(equity, entry_price, stop_price, risk_pct, indicators=None):
+def calculate_position_size(equity, entry_price, stop_price, risk_pct):
     risk_amount = equity * risk_pct
     pip_value = get_pip_value(symbol="XAUUSD", lot=1)
     stop_pips = abs(entry_price - stop_price) / pip_value
     lot = risk_amount / (stop_pips * pip_value)
-    if indicators and indicators.get("ADX", 0) > 20:
-        lot *= 1.5
     logger.debug(
         "[Patch] Calculated position size = %.2f lots for risk %.1f%% and stop %.1f pips",
         lot,
@@ -627,22 +615,6 @@ def entry_signal_trend_relax(df, min_gap_minutes=0):
     cond = fast > slow
     df.loc[cond, "entry_signal"] = "buy"
     df.loc[~cond, "entry_signal"] = "sell"
-    return df
-
-
-def entry_signal_trend_scalp(df, force_gap=10):
-    """Simplified scalp entry with force gap."""
-    logger.info("[QA] entry_signal_trend_scalp placeholder")
-    df = df.copy()
-    df["entry_signal"] = None
-    last = -force_gap
-    for i in range(len(df)):
-        if i - last >= force_gap:
-            if df["ema_fast"].iloc[i] > df["ema_slow"].iloc[i] and df["rsi"].iloc[i] > 50:
-                df.at[df.index[i], "entry_signal"] = "buy"
-            else:
-                df.at[df.index[i], "entry_signal"] = "buy"
-            last = i
     return df
 
 
@@ -1236,55 +1208,6 @@ def calc_adaptive_lot(equity, adx, recovery_mode=False, win_streak=0):
     )
     return lot
 
-
-def calc_aggressive_lot(equity, atr):
-    """Simplified aggressive lot calculation for tests."""
-    logger.debug("[QA] calc_aggressive_lot called: equity=%s atr=%s", equity, atr)
-    return max(0.01, equity * 0.02 / max(atr, 1))
-
-
-def calculate_auto_lot(equity, risk_pct, atr, adx):
-    """Basic auto lot sizing used in unit tests."""
-    logger.debug(
-        "[QA] calculate_auto_lot eq=%.2f risk=%.2f atr=%.2f adx=%.2f",
-        equity,
-        risk_pct,
-        atr,
-        adx,
-    )
-    return round((equity * risk_pct) / max(atr, 1), 2)
-
-
-def equity_based_tp_sl(equity):
-    """Return TP/SL multipliers based on account equity."""
-    logger.debug("[QA] equity_based_tp_sl called with equity=%.2f", equity)
-    if equity < 1000:
-        return (1.5, 0.8)
-    return (3.5, 1.2)
-
-
-def param_grid():
-    """Return parameter grid for optimization."""
-    logger.debug("[QA] param_grid placeholder")
-    return [
-        {
-            "risk": 0.01,
-            "tp_mult": 2.0,
-            "sl_mult": 1.2,
-        }
-    ]
-
-
-def main():
-    """Simple CLI to run WFA or multi timeframe backtest."""
-
-    choice = input("Enter mode number [1=WFA,2=Multi-TF]: ").strip()
-    file_input = input("Enter CSV file path: ").strip()
-    if choice == "1":
-        walk_forward_run(file_input)
-    elif choice == "2":
-        run_backtest_multi_tf()
-
 def smart_entry_signal_enterprise_v1(df, force_entry_gap=300):
     """
     [Patch] Multi-confirm Entry: EMA, ADX, RSI, Divergence, Gain_Z, Wave_Phase
@@ -1345,8 +1268,6 @@ def smart_entry_signal_enterprise_v1(df, force_entry_gap=300):
         (df["entry_signal"] == "buy").sum(),
         (df["entry_signal"] == "sell").sum(),
     )
-    global _PREV_ENTRY_COUNT
-    _PREV_ENTRY_COUNT = df["entry_signal"].notna().sum()
     return df
 
 def smart_entry_signal_goldai2025_style(df):
@@ -1524,17 +1445,9 @@ def _execute_backtest(df):
             if oms.recovery_mode:
                 valid = False
                 if direction == "buy":
-                    valid = (
-                        row.get("divergence") == "bullish"
-                        and row.get("gain_z", 0) >= 0.8
-                        and row.get("adx", 0) >= 20
-                    )
+                    valid = (row.get("divergence") == "bullish") or (row.get("gain_z", 0) > 0)
                 else:
-                    valid = (
-                        row.get("divergence") == "bearish"
-                        and row.get("gain_z", 0) <= -0.8
-                        and row.get("adx", 0) >= 20
-                    )
+                    valid = (row.get("divergence") == "bearish") or (row.get("gain_z", 0) < 0)
                 if not valid:
                     logger.info("[Patch QA] Recovery confirm fail at %s, skip entry", row["timestamp"])
                     continue
@@ -1750,36 +1663,6 @@ def _execute_backtest(df):
                     )
                     break
                 continue
-
-            if enable_micro_sl_exit and not position["tp1_hit"]:
-                micro_sl = (
-                    position["entry"] - row["atr"] * 0.1
-                    if position["type"] == "buy"
-                    else position["entry"] + row["atr"] * 0.1
-                )
-                if (
-                    position["type"] == "buy" and row["low"] <= micro_sl
-                ) or (
-                    position["type"] == "sell" and row["high"] >= micro_sl
-                ):
-                    pnl = -position["lot"] * abs(position["entry"] - micro_sl)
-                    capital += pnl
-                    trades.append(
-                        {
-                            **position,
-                            "exit_time": row["timestamp"],
-                            "exit": "MicroSL",
-                            "pnl": pnl,
-                            "capital": capital,
-                            "reason_exit": "MicroSL",
-                            "commission": position.get("commission", 0),
-                            "spread": SPREAD_VALUE,
-                            "slippage": SLIPPAGE,
-                        }
-                    )
-                    oms.update(capital, pnl > 0)
-                    position = None
-                    continue
 
             # Partial TP1
             if not position["tp1_hit"] and hit_tp1:
@@ -2041,36 +1924,6 @@ def run_backtest(path=None):
     return trades
 
 
-def run_backtest_aggressive(path=None):
-    """Placeholder aggressive backtest that delegates to run_backtest."""
-    logger.info("[QA] run_backtest_aggressive called")
-    return run_backtest(path)
-
-
-def run_backtest_custom(df, params):
-    """Return basic summary using provided dataframe."""
-    logger.info("[QA] run_backtest_custom called")
-    df = data_quality_check(df)
-    if "ema_fast" not in df.columns:
-        df = calc_indicators(df)
-    if "tp2_dynamic" not in df.columns:
-        df = calc_dynamic_tp2(df)
-    if "divergence" not in df.columns:
-        df["divergence"] = None
-    if "gain_z" not in df.columns:
-        df["gain_z"] = 0.0
-    if "wave_phase" not in df.columns:
-        df["wave_phase"] = "trough"
-    if "pattern_label" not in df.columns:
-        df["pattern_label"] = "pattern"
-    df = smart_entry_signal_enterprise_v1(df)
-    trades = _execute_backtest(df)
-    return {
-        "Final Equity": trades["capital"].iloc[-1] if not trades.empty else initial_capital,
-        "Total Trades": len(trades),
-    }
-
-
 def run_backtest_multi_tf(path_m1=M1_PATH, path_m15=M15_PATH):
     """Backtest with M1 trade data and M15 trend confirmation (goldai2025 entry logic)."""
     logger.debug(
@@ -2143,5 +1996,4 @@ def run_walkforward_backtest(df, n_folds=5, config_list=None):
 
 
 if __name__ == "__main__":
-    logger.info("[CLI] defaulting to walk_forward_run")
-    walk_forward_run("trade_log.csv")
+    run_backtest()
