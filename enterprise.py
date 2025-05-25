@@ -2179,8 +2179,9 @@ from copy import deepcopy
 def parameter_grid_search(df_fold, base_entry_fn, prev_best_config=None):
     """[Patch] Grid search for best parameters per fold with optional warm start."""
     logger.info("[Patch] Grid search on fold (%d rows)", len(df_fold))
-    best_result = None
-    best_config: dict = {}
+    best_result = pd.DataFrame()
+    best_config = {}
+    best_profit = -9999
     keys, values = zip(*PARAM_GRID.items())
     combos = list(itertools.product(*values))
     if prev_best_config:
@@ -2192,10 +2193,11 @@ def parameter_grid_search(df_fold, base_entry_fn, prev_best_config=None):
         df = base_entry_fn(df)  # TODO: inject config to entry_fn
         trades = _execute_backtest(df)
         profit = trades["pnl"].sum() if not trades.empty else -9999
-        if best_result is None or profit > best_result["pnl"]:
+        if best_result.empty or profit > best_profit:
             best_result = trades
             best_config = config
-    return best_result if best_result is not None else pd.DataFrame(), best_config
+            best_profit = profit
+    return best_result, best_config
 
 
 def run_wfv_rolling_with_optimization(df, window_size=100000, step_size=20000):
