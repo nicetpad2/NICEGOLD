@@ -886,40 +886,16 @@ class TestSpikeNewsGuard(unittest.TestCase):
                 os.remove(os.path.join(enterprise.TRADE_DIR, f))
 
     def test_walk_forward_run_outputs(self):
-        df = pd.DataFrame(
-            {
-                "entry_time": pd.date_range("2020-01-01", periods=72, freq="H"),
-                "timestamp": pd.date_range("2020-01-01", periods=72, freq="H"),
-                "open": np.linspace(1, 1.2, 72),
-                "high": np.linspace(1, 1.2, 72) + 0.1,
-                "low": np.linspace(1, 1.2, 72) - 0.1,
-                "close": np.linspace(1, 1.2, 72),
-            }
-        )
-        df.to_csv("wfa_test.csv", index=False)
-        enterprise.walk_forward_run("wfa_test.csv", fold_days=1)
-        self.assertTrue(os.path.exists("wfa_summary_results.csv"))
-        os.remove("wfa_test.csv")
-        if os.path.exists("wfa_summary_results.csv"):
-            os.remove("wfa_summary_results.csv")
-        if os.path.exists("wfa_equity_plot.png"):
-            os.remove("wfa_equity_plot.png")
-        for f in os.listdir(enterprise.TRADE_DIR):
-            if f.startswith("shap_summary_fold_"):
-                os.remove(os.path.join(enterprise.TRADE_DIR, f))
+        # function is now deprecated and should return None
+        res = enterprise.walk_forward_run("dummy.csv")
+        self.assertIsNone(res)
 
-    def test_main_menu_calls_correct_functions(self):
-        with patch("builtins.input", side_effect=["1", "file.csv"]), patch.object(
-            enterprise, "walk_forward_run"
-        ) as mwfa:
+    def test_main_runs_wfv(self):
+        with patch.object(enterprise, "load_data", return_value=pd.DataFrame()), patch.object(
+            enterprise, "data_quality_check", return_value=pd.DataFrame()
+        ), patch.object(enterprise, "run_walkforward_backtest") as mwfv:
             enterprise.main()
-            mwfa.assert_called_with("file.csv")
-
-        with patch("builtins.input", side_effect=["2", "file.csv"]), patch.object(
-            enterprise, "run_backtest_multi_tf"
-        ) as mmulti:
-            enterprise.main()
-            mmulti.assert_called_with()
+            mwfv.assert_called()
 
     def test_default_main_block_calls_wfa(self):
         import inspect

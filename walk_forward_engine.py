@@ -205,6 +205,36 @@ def walk_forward_run(trade_data_path, date_col='entry_time', fold_days=30, outpu
     print("\n✅ Walk Forward Analysis Completed. Summary saved to", output_csv)
 
 
+def run_walkforward_backtest(df, n_folds=5, config_list=None):
+    """[Patch] Simplified Walk-Forward Validation backtest."""
+    logger.info("[WFV] Running Walk-Forward Validation")
+    import enterprise
+
+    fold_results = []
+    folds = enterprise.split_folds(df, n_folds=n_folds)
+    for i, fold_df in enumerate(folds):
+        logger.info("[WFV] --- Fold #%d/%d ---", i + 1, n_folds)
+        fold_df = enterprise.data_quality_check(fold_df)
+        fold_df = enterprise.calc_indicators(fold_df)
+        fold_df = enterprise.calc_dynamic_tp2(fold_df)
+        fold_df = enterprise.label_elliott_wave(fold_df)
+        fold_df = enterprise.detect_divergence(fold_df)
+        fold_df = enterprise.label_pattern(fold_df)
+        fold_df = enterprise.calc_gain_zscore(fold_df)
+        fold_df = enterprise.calc_signal_score(fold_df)
+        fold_df, _ = enterprise.shap_feature_importance_placeholder(fold_df)
+        fold_df = enterprise.tag_session(fold_df)
+        fold_df = enterprise.tag_spike_guard(fold_df)
+        fold_df = enterprise.tag_news_event(fold_df)
+        fold_df = enterprise.smart_entry_signal_goldai2025_style(fold_df)
+        fold_df = enterprise.apply_session_bias(fold_df)
+        fold_df = enterprise.apply_spike_news_guard(fold_df)
+        result = enterprise._execute_backtest(fold_df)
+        fold_results.append(result)
+    logger.info("[WFV] Walk-Forward complete")
+    return fold_results
+
+
 if __name__ == "__main__":  # pragma: no cover - CLI
     print("\n🔢 Select Mode:")
     print("  [1] Walk Forward Analysis (WFA)")

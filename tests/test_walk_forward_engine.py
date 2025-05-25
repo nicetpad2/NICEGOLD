@@ -53,6 +53,44 @@ class TestWalkForwardEngine(unittest.TestCase):
             self.assertIn("Final Equity", res)
             self.assertEqual(res["Total Trades"], 1)
 
+    @unittest.skipUnless(pandas_available, "requires pandas")
+    def test_run_walkforward_backtest_basic(self):
+        df = pd.DataFrame(
+            {
+                "timestamp": pd.date_range("2020-01-01", periods=4, freq="min"),
+                "open": [1] * 4,
+                "high": [1] * 4,
+                "low": [1] * 4,
+                "close": [1] * 4,
+                "atr": [0.1] * 4,
+                "ema_fast": [1] * 4,
+                "ema_slow": [1] * 4,
+                "rsi": [50] * 4,
+                "adx": [20] * 4,
+                "entry_signal": ["buy"] * 4,
+            }
+        )
+        import enterprise
+        with patch.object(enterprise, "_execute_backtest", return_value=pd.DataFrame()):
+            with patch.object(enterprise, "split_folds", return_value=[df, df]):
+                with patch.object(enterprise, "data_quality_check", side_effect=lambda x: x), patch.object(
+                    enterprise, "calc_indicators", side_effect=lambda x: x
+                ), patch.object(enterprise, "calc_dynamic_tp2", side_effect=lambda x: x), patch.object(
+                    enterprise, "label_elliott_wave", side_effect=lambda x: x
+                ), patch.object(enterprise, "detect_divergence", side_effect=lambda x: x), patch.object(
+                    enterprise, "label_pattern", side_effect=lambda x: x
+                ), patch.object(enterprise, "calc_gain_zscore", side_effect=lambda x: x), patch.object(
+                    enterprise, "calc_signal_score", side_effect=lambda x: x
+                ), patch.object(enterprise, "shap_feature_importance_placeholder", side_effect=lambda x: (x, None)), patch.object(
+                    enterprise, "tag_session", side_effect=lambda x: x
+                ), patch.object(enterprise, "tag_spike_guard", side_effect=lambda x: x), patch.object(
+                    enterprise, "tag_news_event", side_effect=lambda x: x
+                ), patch.object(enterprise, "smart_entry_signal_goldai2025_style", side_effect=lambda x: x), patch.object(
+                    enterprise, "apply_session_bias", side_effect=lambda x: x
+                ), patch.object(enterprise, "apply_spike_news_guard", side_effect=lambda x: x):
+                    results = wfe.run_walkforward_backtest(df, n_folds=2)
+        self.assertEqual(len(results), 2)
+
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

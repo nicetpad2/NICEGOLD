@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from dataclasses import dataclass
 from typing import Optional
 import logging
-from walk_forward_engine import walk_forward_run as _wf_run
+from walk_forward_engine import run_walkforward_backtest
 try:
     import psutil  # สำหรับเช็ค RAM
 except Exception:  # pragma: no cover - optional dependency
@@ -2094,18 +2094,17 @@ def run_backtest_custom(df, params):
 
 
 def main():
-    """[Patch] Simple CLI for unit tests."""
-    choice = input("Mode: [1] WFA [2] MultiTF -> ").strip()
-    file_input = input("file.csv: ").strip()
-    if choice == "1":
-        walk_forward_run(file_input)
-    else:
-        run_backtest_multi_tf()
+    """[Patch] Simple CLI replaced with Walk-Forward Validation."""
+    logger.info("[Patch] Running main() with WFV")
+    df = load_data(M1_PATH)
+    df = data_quality_check(df)
+    run_walkforward_backtest(df, n_folds=5)
 
 
 def walk_forward_run(trade_data_path, fold_days=30):
-    """[Patch] Wrapper to call WFA engine."""
-    return _wf_run(trade_data_path, fold_days=fold_days)
+    """[Patch] WFA deprecated; retained for compatibility."""
+    logger.info("[Patch] walk_forward_run() is deprecated")
+    pass
 
 
 if __name__ == "__main__":
