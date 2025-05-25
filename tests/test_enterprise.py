@@ -893,7 +893,14 @@ class TestSpikeNewsGuard(unittest.TestCase):
     def test_main_runs_wfv(self):
         with patch.object(enterprise, "load_data", return_value=pd.DataFrame()), patch.object(
             enterprise, "data_quality_check", return_value=pd.DataFrame()
-        ), patch.object(enterprise, "run_wfv_full_report") as mwfv:
+        ), patch.object(enterprise, "calc_indicators", return_value=pd.DataFrame()), patch.object(
+            enterprise, "calc_dynamic_tp2", return_value=pd.DataFrame()), patch.object(
+            enterprise, "label_elliott_wave", return_value=pd.DataFrame()), patch.object(
+            enterprise, "detect_divergence", return_value=pd.DataFrame()), patch.object(
+            enterprise, "calc_gain_zscore", return_value=pd.DataFrame()), patch.object(
+            enterprise, "run_wfv_rolling_with_optimization") as mwfv, patch.object(
+            enterprise, "plot_wfv_summary"
+        ):
             enterprise.main()
             mwfv.assert_called()
 
@@ -922,12 +929,44 @@ class TestSpikeNewsGuard(unittest.TestCase):
             if os.path.exists(f):
                 os.remove(f)
 
+    def test_run_wfv_rolling_with_optimization_basic(self):
+        df = pd.DataFrame(
+            {
+                "timestamp": pd.date_range("2020-01-01", periods=5, freq="min"),
+                "open": [1] * 5,
+                "high": [1] * 5,
+                "low": [1] * 5,
+                "close": [1] * 5,
+            }
+        )
+        with patch.object(
+            enterprise,
+            "parameter_grid_search",
+            return_value=(pd.DataFrame({"pnl": [1]}), {}),
+        ):
+            res = enterprise.run_wfv_rolling_with_optimization(df, window_size=2, step_size=1)
+        self.assertIsInstance(res, list)
+        self.assertGreater(len(res), 0)
+
+    def test_plot_wfv_summary_returns_df(self):
+        results = [
+            {
+                "fold": "0-2",
+                "goldai2025_profit": 1,
+                "goldai2025_winrate": 1.0,
+                "goldai2025_trades": 1,
+                "goldai2025_config": {},
+            }
+        ]
+        df = enterprise.plot_wfv_summary(results)
+        self.assertIsInstance(df, pd.DataFrame)
+
     def test_default_main_block_manual_wfv(self):
         import inspect
 
         src = inspect.getsource(enterprise)
-        self.assertIn("Auto-detect mode: Run WFV", src)
-        self.assertIn("run_wfv_full_report", src)
+        self.assertIn("Running WFV + Optimization", src)
+        self.assertIn("run_wfv_rolling_with_optimization", src)
 
 
 

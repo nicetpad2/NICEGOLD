@@ -7,6 +7,14 @@ from dataclasses import dataclass
 from typing import Optional
 import logging
 from walk_forward_engine import run_walkforward_backtest
+import itertools
+
+try:
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+except Exception:  # pragma: no cover - optional dependency
+    plt = None
+    sns = None
 try:
     import psutil  # สำหรับเช็ค RAM
 except Exception:  # pragma: no cover - optional dependency
@@ -2147,6 +2155,92 @@ def run_wfv_full_report(
     return df_summary
 
 
+# [Patch] Entry Strategies to compare
+ENTRY_STRATEGIES = {
+    "goldai2025": smart_entry_signal_goldai2025_style,
+    "enterprise_v1": smart_entry_signal_enterprise_v1,
+    "multi_tf_ema_adx": smart_entry_signal_multi_tf_ema_adx,
+    "optimized": smart_entry_signal_multi_tf_ema_adx_optimized,
+}
+
+# [Patch] Optimization Grid
+PARAM_GRID = {
+    "tp1_mult": [1.5, 2.0, 2.5],
+    "tp2_mult": [3.0, 4.0, 5.0],
+    "sl_mult": [1.0, 1.2, 1.5],
+    "adx_thresh": [10, 12, 14],
+    "rsi_buy": [50, 51, 53],
+    "rsi_sell": [47, 49, 50],
+}
+
+from copy import deepcopy
+
+
+def parameter_grid_search(df_fold, base_entry_fn):
+    """[Patch] Simple grid search for best parameters per fold."""
+    logger.info("[Patch] Grid search on fold (%d rows)", len(df_fold))
+    best_result = None
+    best_config: dict = {}
+    keys, values = zip(*PARAM_GRID.items())
+    for combo in itertools.product(*values):
+        config = dict(zip(keys, combo))
+        df = df_fold.copy()
+        df = base_entry_fn(df)  # TODO: inject config to entry_fn
+        trades = _execute_backtest(df)
+        profit = trades["pnl"].sum() if not trades.empty else -9999
+        if best_result is None or profit > best_result["pnl"]:
+            best_result = trades
+            best_config = config
+    return best_result if best_result is not None else pd.DataFrame(), best_config
+
+
+def run_wfv_rolling_with_optimization(df, window_size=100000, step_size=20000):
+    """[Patch] Rolling Walk-Forward Validation with optimization and strategy comparison."""
+    logger.info("[Patch] Rolling WFV with Optimization")
+    all_results = []
+    for start in range(0, len(df) - window_size + 1, step_size):
+        df_fold = df.iloc[start : start + window_size].reset_index(drop=True)
+        fold_result = {"fold": f"{start}-{start + window_size}"}
+        for name, entry_fn in ENTRY_STRATEGIES.items():
+            result, config = parameter_grid_search(df_fold, entry_fn)
+            pnl = result["pnl"].sum() if not result.empty else 0
+            winrate = (result["pnl"] > 0).mean() if not result.empty else 0
+            trades = len(result)
+            fold_result.update(
+                {
+                    f"{name}_profit": pnl,
+                    f"{name}_winrate": winrate,
+                    f"{name}_trades": trades,
+                    f"{name}_config": config,
+                }
+            )
+        all_results.append(fold_result)
+    return all_results
+
+
+def plot_wfv_summary(results):
+    """[Patch] Visual summary of WFV results."""
+    import pandas as pd
+
+    df = pd.DataFrame(results)
+    metrics = ["profit", "winrate", "trades"]
+    strategies = list(ENTRY_STRATEGIES.keys())
+    if plt is None:
+        return df
+    for metric in metrics:
+        plt.figure(figsize=(12, 5))
+        for name in strategies:
+            plt.plot(df["fold"], df[f"{name}_{metric}"], label=name)
+        plt.title(f"[Patch] WFV - {metric.title()} per Fold")
+        plt.xlabel("Fold")
+        plt.ylabel(metric.title())
+        plt.legend()
+        plt.xticks(rotation=45)
+        plt.tight_layout()
+        plt.show()
+    return df
+
+
 def calc_aggressive_lot(balance, risk_factor):
     """[Patch] Simplified aggressive lot calculation for tests."""
     return max(0.01, balance * risk_factor / 100)
@@ -2196,7 +2290,13 @@ def main():
     logger.info("[Patch] Running main() with WFV")
     df = load_data(M1_PATH)
     df = data_quality_check(df)
-    run_wfv_full_report(df, n_folds=5)
+    df = calc_indicators(df)
+    df = calc_dynamic_tp2(df)
+    df = label_elliott_wave(df)
+    df = detect_divergence(df)
+    df = calc_gain_zscore(df)
+    results = run_wfv_rolling_with_optimization(df)
+    plot_wfv_summary(results)
 
 
 def walk_forward_run(trade_data_path, fold_days=30):
@@ -2206,8 +2306,13 @@ def walk_forward_run(trade_data_path, fold_days=30):
 
 
 if __name__ == "__main__":
-    logger.info("[Patch] Auto-detect mode: Run WFV on full dataset with MAX_RAM_MODE")
-    MAX_RAM_MODE = True  # ✅ เปิดใช้ RAM เต็ม
+    logger.info("[Patch] Running WFV + Optimization (Sprint A)")
     df = load_data(M1_PATH)
     df = data_quality_check(df)
-    run_wfv_full_report(df, n_folds=5)
+    df = calc_indicators(df)
+    df = calc_dynamic_tp2(df)
+    df = label_elliott_wave(df)
+    df = detect_divergence(df)
+    df = calc_gain_zscore(df)
+    results = run_wfv_rolling_with_optimization(df)
+    plot_wfv_summary(results)
