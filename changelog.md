@@ -18,3 +18,8 @@
 ### Changed
 - Replaced WFA CLI with Walk-Forward Validation approach.
 
+## [v1.0.3] — 2025-05-25
+### Changed
+- Updated deprecated `walk_forward_run` message.
+- Main block now runs Walk-Forward Validation on the first fold.
+

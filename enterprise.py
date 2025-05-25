@@ -2103,9 +2103,13 @@ def main():
 
 def walk_forward_run(trade_data_path, fold_days=30):
     """[Patch] WFA deprecated; retained for compatibility."""
-    logger.info("[Patch] walk_forward_run() is deprecated")
+    logger.info("[Patch] walk_forward_run() is deprecated - replaced by WFV")
     pass
 
 
 if __name__ == "__main__":
-    walk_forward_run("trade_log.csv")
+    logger.info("[Patch] Manual run WFV from M1_PATH (Fold 1 only)")
+    df = load_data(M1_PATH)
+    df = data_quality_check(df)
+    folds = split_folds(df, n_folds=5)
+    run_walkforward_backtest(folds[0:1], n_folds=1)
