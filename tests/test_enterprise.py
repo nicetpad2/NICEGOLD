@@ -898,8 +898,13 @@ class TestSpikeNewsGuard(unittest.TestCase):
             enterprise, "label_elliott_wave", return_value=pd.DataFrame()), patch.object(
             enterprise, "detect_divergence", return_value=pd.DataFrame()), patch.object(
             enterprise, "calc_gain_zscore", return_value=pd.DataFrame()), patch.object(
-            enterprise, "run_wfv_rolling_with_optimization") as mwfv, patch.object(
+            enterprise,
+            "run_wfv_rolling_with_optimization",
+            return_value=([], "goldai2025"),
+        ) as mwfv, patch.object(
             enterprise, "plot_wfv_summary"
+        ), patch.object(
+            enterprise, "run_final_backtest_with_best_strategy"
         ):
             enterprise.main()
             mwfv.assert_called()
@@ -944,9 +949,10 @@ class TestSpikeNewsGuard(unittest.TestCase):
             "parameter_grid_search",
             return_value=(pd.DataFrame({"pnl": [1]}), {}),
         ):
-            res = enterprise.run_wfv_rolling_with_optimization(df, window_size=2, step_size=1)
+            res, best_strat = enterprise.run_wfv_rolling_with_optimization(df, window_size=2, step_size=1)
         self.assertIsInstance(res, list)
         self.assertGreater(len(res), 0)
+        self.assertIsInstance(best_strat, str)
 
     def test_plot_wfv_summary_returns_df(self):
         results = [
