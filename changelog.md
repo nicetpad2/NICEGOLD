@@ -13,3 +13,8 @@
 ### Changed
 - Updated risk management parameters (recovery multiplier 2.0, trailing ATR 1.3, kill switch 30%)
 - Reduced force entry gap to 200 and simplified entry signal logic
+
+## [v1.0.2] — 2025-05-25
+### Changed
+- Replaced WFA CLI with Walk-Forward Validation approach.
+
