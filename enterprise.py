@@ -2323,7 +2323,11 @@ def main():
     df = calc_gain_zscore(df)
     results, best_strategy = run_wfv_rolling_with_optimization(df)
     plot_wfv_summary(results)
-    run_final_backtest_with_best_strategy(df, best_strategy)
+    final_trades = run_final_backtest_with_best_strategy(df, best_strategy)
+    csv_path = os.path.join(TRADE_DIR, f"final_trades_{best_strategy}.csv")
+    final_trades.to_csv(csv_path, index=False)
+    logger.info("[Patch] Exported Final Trades to %s", csv_path)
+    print("\n✅ Final trades exported to:", csv_path)
 
 
 def walk_forward_run(trade_data_path, fold_days=30):
@@ -2345,3 +2349,7 @@ if __name__ == "__main__":
     plot_wfv_summary(results)
     print("\n✅ BEST STRATEGY FOR FULL BACKTEST:", best_strategy)
     final_trades = run_final_backtest_with_best_strategy(df, best_strategy)
+    csv_path = os.path.join(TRADE_DIR, f"final_trades_{best_strategy}.csv")
+    final_trades.to_csv(csv_path, index=False)
+    logger.info("[Patch] Exported Final Trades to %s", csv_path)
+    print("\n✅ Final trades exported to:", csv_path)
