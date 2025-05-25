@@ -893,16 +893,41 @@ class TestSpikeNewsGuard(unittest.TestCase):
     def test_main_runs_wfv(self):
         with patch.object(enterprise, "load_data", return_value=pd.DataFrame()), patch.object(
             enterprise, "data_quality_check", return_value=pd.DataFrame()
-        ), patch.object(enterprise, "run_walkforward_backtest") as mwfv:
+        ), patch.object(enterprise, "run_wfv_full_report") as mwfv:
             enterprise.main()
             mwfv.assert_called()
+
+    def test_run_wfv_full_report_basic(self):
+        df = pd.DataFrame(
+            {
+                "timestamp": pd.date_range("2020-01-01", periods=4, freq="min"),
+                "open": [1] * 4,
+                "high": [1] * 4,
+                "low": [1] * 4,
+                "close": [1] * 4,
+            }
+        )
+        with patch.object(
+            enterprise,
+            "_execute_backtest",
+            return_value=pd.DataFrame({"pnl": [1], "capital": [101]}),
+        ):
+            res = enterprise.run_wfv_full_report(df, n_folds=2)
+        self.assertIsInstance(res, pd.DataFrame)
+        summary_csv = os.path.join(enterprise.SUMMARY_DIR, "wfv_summary.csv")
+        self.assertTrue(os.path.exists(summary_csv))
+        os.remove(summary_csv)
+        for metric in ["winrate", "profit", "max_dd"]:
+            f = os.path.join(enterprise.SUMMARY_DIR, f"{metric}_plot.png")
+            if os.path.exists(f):
+                os.remove(f)
 
     def test_default_main_block_manual_wfv(self):
         import inspect
 
         src = inspect.getsource(enterprise)
-        self.assertIn("Manual run WFV from M1_PATH", src)
-        self.assertIn("run_walkforward_backtest(folds[0:1], n_folds=1)", src)
+        self.assertIn("Auto-detect mode: Run WFV", src)
+        self.assertIn("run_wfv_full_report", src)
 
 
 

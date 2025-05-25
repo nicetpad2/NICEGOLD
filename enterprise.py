@@ -19,6 +19,8 @@ TRADE_DIR = "/content/drive/MyDrive/NICEGOLD/logs"
 os.makedirs(TRADE_DIR, exist_ok=True)
 M1_PATH = "/content/drive/MyDrive/NICEGOLD/XAUUSD_M1.csv"
 M15_PATH = "/content/drive/MyDrive/NICEGOLD/XAUUSD_M15.csv"
+SUMMARY_DIR = os.path.join(TRADE_DIR, "wfv_summary")
+os.makedirs(SUMMARY_DIR, exist_ok=True)
 
 # [Patch] Enable full RAM mode
 MAX_RAM_MODE = True  # เปิดโหมดใช้แรมหนัก
@@ -2049,6 +2051,102 @@ def run_walkforward_backtest(df, n_folds=5, config_list=None):
     return fold_results
 
 
+def run_wfv_full_report(
+    df,
+    n_folds=5,
+    mode="static",
+    window_size=None,
+    step_size=None,
+    param_grid=None,
+):
+    """[Patch] Walk-Forward Optimization with rolling window and summary."""
+    logger.info("[Patch] Running WFV++: mode=%s, folds=%d", mode, n_folds)
+    summary_rows = []
+
+    if param_grid is None:
+        param_grid = [
+            {"sl_mult": sl_mult, "tp2_mult": tp2_mult}
+            for sl_mult in [1.2]
+            for tp2_mult in [4.0]
+        ]
+
+    for param_id, params in enumerate(param_grid):
+        logger.info("[Patch] ParamSet #%d: %s", param_id + 1, params)
+        local_results = []
+
+        if mode == "static":
+            folds = split_folds(df, n_folds=n_folds)
+        elif mode == "rolling":
+            folds = []
+            start = 0
+            total_len = len(df)
+            while start + window_size <= total_len:
+                folds.append(df.iloc[start : start + window_size].reset_index(drop=True))
+                start += step_size
+        else:
+            raise ValueError("Invalid mode. Use 'static' or 'rolling'")
+
+        for i, fold_df in enumerate(folds):
+            logger.info("[Patch] Fold %d/%d", i + 1, len(folds))
+            fold_df = data_quality_check(fold_df)
+            fold_df = calc_indicators(fold_df)
+            fold_df = calc_dynamic_tp2(fold_df, base_tp2_mult=params["tp2_mult"])
+            fold_df = label_elliott_wave(fold_df)
+            fold_df = detect_divergence(fold_df)
+            fold_df = label_pattern(fold_df)
+            fold_df = calc_gain_zscore(fold_df)
+            fold_df = calc_signal_score(fold_df)
+            fold_df, _ = shap_feature_importance_placeholder(fold_df)
+            fold_df = tag_session(fold_df)
+            fold_df = tag_spike_guard(fold_df)
+            fold_df = tag_news_event(fold_df)
+            fold_df = smart_entry_signal_goldai2025_style(fold_df)
+            fold_df = apply_session_bias(fold_df)
+            fold_df = apply_spike_news_guard(fold_df)
+            result = _execute_backtest(fold_df)
+            eq_df = globals().get("_LAST_EQUITY_DF", pd.DataFrame())
+            row = {
+                "param_id": param_id,
+                "fold": i + 1,
+                "sl_mult": params["sl_mult"],
+                "tp2_mult": params["tp2_mult"],
+                "trades": len(result),
+                "winrate": (result["pnl"] > 0).mean() if not result.empty else 0,
+                "profit": result["pnl"].sum() if not result.empty else 0,
+                "max_dd": eq_df["dd"].max() if not eq_df.empty else 0,
+                "final_equity": result["capital"].iloc[-1] if not result.empty else initial_capital,
+            }
+            local_results.append(row)
+
+        summary_rows.extend(local_results)
+
+    df_summary = pd.DataFrame(summary_rows)
+    csv_path = os.path.join(SUMMARY_DIR, "wfv_summary.csv")
+    df_summary.to_csv(csv_path, index=False)
+    logger.info("[Patch] WFV Summary saved to: %s", csv_path)
+
+    try:
+        import matplotlib.pyplot as plt
+
+        for metric in ["winrate", "profit", "max_dd"]:
+            plt.figure(figsize=(10, 4))
+            for pid in df_summary["param_id"].unique():
+                sub = df_summary[df_summary["param_id"] == pid]
+                plt.plot(sub["fold"], sub[metric], label=f"Param#{pid}")
+            plt.title(f"WFV Fold Comparison – {metric}")
+            plt.xlabel("Fold")
+            plt.ylabel(metric)
+            plt.legend()
+            plt.tight_layout()
+            img_path = os.path.join(SUMMARY_DIR, f"{metric}_plot.png")
+            plt.savefig(img_path)
+            logger.info("[Patch] Saved plot: %s", img_path)
+    except Exception as e:
+        logger.warning("[Patch] Failed to plot summary charts: %s", e)
+
+    return df_summary
+
+
 def calc_aggressive_lot(balance, risk_factor):
     """[Patch] Simplified aggressive lot calculation for tests."""
     return max(0.01, balance * risk_factor / 100)
@@ -2098,7 +2196,7 @@ def main():
     logger.info("[Patch] Running main() with WFV")
     df = load_data(M1_PATH)
     df = data_quality_check(df)
-    run_walkforward_backtest(df, n_folds=5)
+    run_wfv_full_report(df, n_folds=5)
 
 
 def walk_forward_run(trade_data_path, fold_days=30):
@@ -2112,4 +2210,4 @@ if __name__ == "__main__":
     MAX_RAM_MODE = True  # ✅ เปิดใช้ RAM เต็ม
     df = load_data(M1_PATH)
     df = data_quality_check(df)
-    run_walkforward_backtest(df, n_folds=5)
+    run_wfv_full_report(df, n_folds=5)
