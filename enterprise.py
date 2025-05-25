@@ -2108,8 +2108,8 @@ def walk_forward_run(trade_data_path, fold_days=30):
 
 
 if __name__ == "__main__":
-    logger.info("[Patch] Manual run WFV from M1_PATH (Fold 1 only)")
+    logger.info("[Patch] Auto-detect mode: Run WFV on full dataset with MAX_RAM_MODE")
+    MAX_RAM_MODE = True  # ✅ เปิดใช้ RAM เต็ม
     df = load_data(M1_PATH)
     df = data_quality_check(df)
-    folds = split_folds(df, n_folds=5)
-    run_walkforward_backtest(folds[0:1], n_folds=1)
+    run_walkforward_backtest(df, n_folds=5)
