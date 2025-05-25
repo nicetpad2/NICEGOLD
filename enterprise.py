@@ -3,8 +3,8 @@ import pandas as pd
 import numpy as np
 import os
 from datetime import datetime, timedelta
-from dataclasses import dataclass
-from typing import Optional
+from dataclasses import dataclass, field
+from typing import Optional, List
 import logging
 from walk_forward_engine import run_walkforward_backtest
 import itertools
@@ -133,6 +133,124 @@ base_tp_distance = 2.0
 partial_tp_distance = 1.5
 break_even_distance = 1.0
 trailing_atr_multiplier = 1.0
+
+# --- Additional Data Classes for Supergrowth Patch ---
+@dataclass
+class Trade:
+    entry_time: datetime
+    type: str
+    entry: float
+    sl: float
+    tp1: float
+    tp2: float
+    lot: float
+    tp1_hit: bool = False
+    breakeven: bool = False
+    entry_idx: int = 0
+    reason_entry: str = ""
+    mode: str = "NORMAL"
+    risk: float = 0.0
+    context: str = ""
+    dd_at_entry: float = 0.0
+    peak_equity: float = 100.0
+    commission: float = 0.0
+    exit_time: Optional[datetime] = None
+    exit: Optional[float] = None
+    pnl: Optional[float] = None
+    capital: Optional[float] = None
+    reason_exit: Optional[str] = None
+    wave_phase: Optional[str] = None
+    pattern_label: Optional[str] = None
+    divergence: Optional[float] = None
+    signal_score: Optional[float] = None
+    session: Optional[str] = None
+    spike_guard: Optional[bool] = None
+    news_guard: Optional[bool] = None
+    oms_mode: str = "NORMAL"
+    spread: float = 0.8
+    slippage: float = 0.2
+
+
+@dataclass
+class BacktestConfig:
+    initial_capital: float = 100.0
+    risk_per_trade: float = 1.5
+    sl_atr_multiplier: float = 1.5
+    tp1_atr_multiplier: float = 1.2
+    tp2_atr_multiplier: float = 3.0
+    commission_per_lot: float = 20.0
+    breakeven_pips: float = 10.0
+    trailing_sl_pips: float = 25.0
+    enable_breakeven: bool = True
+    enable_trailing_sl: bool = True
+    min_lot_size: float = 0.01
+    max_lot_size: float = 5.0
+    require_divergence: bool = False
+    min_signal_score: float = 0.5
+    low_gain_z_exit_enabled: bool = True
+    gain_zscore_threshold: float = -1.0
+    atr_low_exit_enabled: bool = True
+    atr_ma_short_period: int = 5
+    atr_ma_long_period: int = 20
+    pause_on_dd_enabled: bool = True
+    dd_pause_threshold: float = 0.20
+    dd_recovery_threshold: float = 0.10
+
+
+def _calculate_lot_size_adaptive(capital: float, risk_perc: float, sl_pips: float, config: BacktestConfig) -> float:
+    """Adaptive lot sizing helper."""
+    if capital <= 0:
+        return 0.0
+    risk_amount = capital * (risk_perc / 100.0)
+    pip_value = 10.0
+    sl_value_per_lot = sl_pips * pip_value
+    if sl_value_per_lot <= 0:
+        return config.min_lot_size
+    lot_size = risk_amount / sl_value_per_lot
+    lot_size = max(config.min_lot_size, min(lot_size, config.max_lot_size))
+    return round(lot_size, 2)
+
+
+def smart_exit(trade: Trade, current_row: pd.Series, config: BacktestConfig):
+    """Determine if trade should exit early based on gain_zscore or ATR."""
+    pnl_pips = (
+        (current_row["close"] - trade.entry) * 100
+        if trade.type == "buy"
+        else (trade.entry - current_row["close"]) * 100
+    )
+    trade.pnl = pnl_pips * trade.lot * 0.1
+    if (
+        config.low_gain_z_exit_enabled
+        and trade.pnl > 0
+        and "gain_zscore" in current_row
+        and current_row["gain_zscore"] < config.gain_zscore_threshold
+    ):
+        return True, "Exit due to low gain z-score"
+    if (
+        config.atr_low_exit_enabled
+        and trade.pnl > 0
+        and "atr_ma_short" in current_row
+        and "atr_ma_long" in current_row
+        and current_row["atr_ma_short"] < current_row["atr_ma_long"]
+    ):
+        return True, "Exit due to ATR low"
+    return False, None
+
+
+def should_pause_equity(current_equity: float, peak_equity: float, config: BacktestConfig) -> bool:
+    if not config.pause_on_dd_enabled:
+        return False
+    if peak_equity <= 0:
+        return False
+    dd = (peak_equity - current_equity) / peak_equity
+    return dd >= config.dd_pause_threshold
+
+
+def should_resume_equity(current_equity: float, paused_at_equity: float, config: BacktestConfig) -> bool:
+    if paused_at_equity <= 0:
+        return False
+    gain = (current_equity - paused_at_equity) / paused_at_equity
+    return gain >= config.dd_recovery_threshold
 
 
 def generate_signal(
@@ -1310,6 +1428,51 @@ def smart_entry_signal_goldai2025_style(df):
     return df
 
 
+def smart_entry_signal_goldai2025_style_v2(df, config: BacktestConfig = BacktestConfig()):
+    """[Patch] Improved entry using divergence, RSI and ZLEMA confirm."""
+    logger.info("[Patch] Entry Signal v2 - goldai2025 with divergence + rsi + zlema confirm")
+    df = df.copy()
+    df["entry_signal"] = None
+
+    # Prepare columns with defaults for unit tests
+    ewc = df.get("ewc_count_label", pd.Series(["peak"] * len(df)))
+    stoch_k = df.get("stoch_k", pd.Series([50] * len(df)))
+    z_trend = df.get("zlema_trend", pd.Series([1] * len(df)))
+    divergence = df.get("divergence", pd.Series([0] * len(df)))
+    gain_z = df.get("gain_zscore", pd.Series([0.0] * len(df)))
+    score = df.get("signal_score", pd.Series([1.0] * len(df)))
+
+    buy_cond = (
+        (ewc == "peak")
+        & (df.get("rsi", pd.Series([0] * len(df))) < config.rsi_threshold_low)
+        & (stoch_k < config.stoch_rsi_oversold)
+        & (z_trend == 1)
+        & ((divergence == 1) | (~config.require_divergence))
+        & (gain_z > 0.5)
+        & (score >= config.min_signal_score)
+    )
+
+    sell_cond = (
+        (ewc == "mid")
+        & (df.get("rsi", pd.Series([0] * len(df))) > config.rsi_threshold_high)
+        & (stoch_k > config.stoch_rsi_overbought)
+        & (z_trend == -1)
+        & ((divergence == -1) | (~config.require_divergence))
+        & (gain_z < -0.5)
+        & (score >= config.min_signal_score)
+    )
+
+    df.loc[buy_cond, "entry_signal"] = "buy"
+    df.loc[sell_cond, "entry_signal"] = "sell"
+
+    logger.info(
+        "[Patch] Entry signals generated: buy=%d, sell=%d",
+        (df["entry_signal"] == "buy").sum(),
+        (df["entry_signal"] == "sell").sum(),
+    )
+    return df
+
+
 class OMSManager:
     def __init__(self, capital, kill_switch_dd, lot_max):
         self.capital = capital
@@ -1959,6 +2122,69 @@ def qa_validate_backtest(trades_df, equity_df, min_trades=15, min_profit=15, pre
         "dd": dd,
         "winrate": winrate,
     }
+
+
+def _execute_backtest_adaptive(df: pd.DataFrame, config: BacktestConfig = BacktestConfig()):
+    """Simplified adaptive backtest with pause logic."""
+    logger.info("[Patch] Executing adaptive backtest")
+    capital = config.initial_capital
+    trades: List[Trade] = []
+    open_trade: Optional[Trade] = None
+    equity_curve = []
+    max_equity = capital
+    paused = False
+    paused_at = None
+
+    for i, row in df.iterrows():
+        current_equity = capital + (open_trade.pnl if open_trade and open_trade.pnl else 0)
+        max_equity = max(max_equity, current_equity)
+        equity_curve.append({"timestamp": row.get("timestamp", i), "equity": current_equity})
+
+        if paused:
+            if should_resume_equity(current_equity, paused_at, config):
+                paused = False
+                paused_at = None
+            else:
+                continue
+
+        if should_pause_equity(current_equity, max_equity, config):
+            paused = True
+            paused_at = current_equity
+            continue
+
+        if open_trade:
+            exit_now, reason = smart_exit(open_trade, row, config)
+            if exit_now:
+                pnl = open_trade.pnl - open_trade.commission
+                capital += pnl
+                open_trade.exit_time = row.get("timestamp", i)
+                open_trade.exit = row.get("close")
+                open_trade.reason_exit = reason
+                open_trade.capital = capital
+                trades.append(open_trade)
+                open_trade = None
+
+        signal = row.get("signal")
+        if open_trade is None and signal in [1, -1]:
+            atr_val = row.get("atr", 1.0)
+            sl_pips = config.sl_atr_multiplier * atr_val * 100
+            lot = _calculate_lot_size_adaptive(capital, config.risk_per_trade, sl_pips, config)
+            entry_price = row.get("close")
+            if signal == 1:
+                sl = entry_price - sl_pips / 100
+                tp1 = entry_price + config.tp1_atr_multiplier * atr_val
+                tp2 = entry_price + config.tp2_atr_multiplier * atr_val
+                trade_type = "buy"
+            else:
+                sl = entry_price + sl_pips / 100
+                tp1 = entry_price - config.tp1_atr_multiplier * atr_val
+                tp2 = entry_price - config.tp2_atr_multiplier * atr_val
+                trade_type = "sell"
+            open_trade = Trade(entry_time=row.get("timestamp", i), type=trade_type, entry=entry_price, sl=sl, tp1=tp1, tp2=tp2, lot=lot)
+
+    trade_log = pd.DataFrame([vars(t) for t in trades])
+    equity_df = pd.DataFrame(equity_curve)
+    return trade_log, equity_df
 
 
 def run_backtest(path=None):

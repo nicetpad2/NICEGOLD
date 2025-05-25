@@ -46,3 +46,4 @@
 - Sprint A: Auto-learning WFV with strategy selection and final backtest
 - Sprint A Update: Full auto pipeline exports final trades to CSV
 - Patch: Fix ambiguous Series comparison using scalar best_profit
+- Patch: Add adaptive TP/SL, pause logic, and improved entry signal

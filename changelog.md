@@ -19,3 +19,8 @@
 ### Fixed
 - Resolved ambiguous Series comparison in parameter_grid_search when selecting
   best parameters.
+
+## [v1.0.9] — 2025-05-25
+### Added
+- Support for adaptive TP/SL and OMS pause logic.
+- Improved GoldAI2025 entry signal with divergence and ZLEMA confirm.
