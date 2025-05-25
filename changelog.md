@@ -23,3 +23,7 @@
 - Updated deprecated `walk_forward_run` message.
 - Main block now runs Walk-Forward Validation on the first fold.
 
+## [v1.0.4] — 2025-05-25
+### Added
+- Added `run_wfv_full_report` for Walk-Forward Optimization summary and plots.
+
