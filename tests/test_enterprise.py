@@ -897,11 +897,12 @@ class TestSpikeNewsGuard(unittest.TestCase):
             enterprise.main()
             mwfv.assert_called()
 
-    def test_default_main_block_calls_wfa(self):
+    def test_default_main_block_manual_wfv(self):
         import inspect
 
         src = inspect.getsource(enterprise)
-        self.assertIn("walk_forward_run(\"trade_log.csv\")", src)
+        self.assertIn("Manual run WFV from M1_PATH", src)
+        self.assertIn("run_walkforward_backtest(folds[0:1], n_folds=1)", src)
 
 
 
