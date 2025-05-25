@@ -10,6 +10,25 @@ sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 import enterprise
 import io
 
+# Use predefined paths for all tests
+TRADE_DIR_PATH = "/content/drive/MyDrive/NICEGOLD/logs"
+M1_PATH = "/content/drive/MyDrive/NICEGOLD/XAUUSD_M1.csv"
+M15_PATH = "/content/drive/MyDrive/NICEGOLD/XAUUSD_M15.csv"
+os.makedirs(TRADE_DIR_PATH, exist_ok=True)
+enterprise.TRADE_DIR = TRADE_DIR_PATH
+enterprise.M1_PATH = M1_PATH
+enterprise.M15_PATH = M15_PATH
+
+ROOT_DIR = os.path.dirname(os.path.dirname(__file__))
+if not os.path.exists(M1_PATH):
+    os.makedirs(os.path.dirname(M1_PATH), exist_ok=True)
+    import shutil
+    shutil.copy(os.path.join(ROOT_DIR, "XAUUSD_M1.csv"), M1_PATH)
+if not os.path.exists(M15_PATH):
+    os.makedirs(os.path.dirname(M15_PATH), exist_ok=True)
+    import shutil
+    shutil.copy(os.path.join(ROOT_DIR, "XAUUSD_M15.csv"), M15_PATH)
+
 
 class TestEnterprise(unittest.TestCase):
     def test_load_data_timestamp(self):
@@ -116,19 +135,17 @@ class TestEnterprise(unittest.TestCase):
                 "close": np.linspace(1, 1.3, 30),
             }
         )
-        df.to_csv("tmp.csv", index=False)
-        enterprise.M1_PATH = "tmp.csv"
-        enterprise.TRADE_DIR = "."
+        df.to_csv(enterprise.M1_PATH, index=False)
         enterprise.run_backtest()
-        self.assertTrue(os.path.exists("tmp.csv"))
-        os.remove("tmp.csv")
+        self.assertTrue(os.path.exists(enterprise.M1_PATH))
+        os.remove(enterprise.M1_PATH)
         # ensure logs saved
-        logs = [f for f in os.listdir(".") if f.startswith("trade_log_")]
+        logs = [f for f in os.listdir(enterprise.TRADE_DIR) if f.startswith("trade_log_")]
         for f in logs:
-            os.remove(f)
-        curves = [f for f in os.listdir(".") if f.startswith("equity_curve_")]
+            os.remove(os.path.join(enterprise.TRADE_DIR, f))
+        curves = [f for f in os.listdir(enterprise.TRADE_DIR) if f.startswith("equity_curve_")]
         for f in curves:
-            os.remove(f)
+            os.remove(os.path.join(enterprise.TRADE_DIR, f))
 
     def test_add_m15_context_to_m1(self):
         df_m1 = pd.DataFrame(
@@ -181,18 +198,17 @@ class TestEnterprise(unittest.TestCase):
                 "close": [1, 1.1, 1.2],
             }
         )
-        df1.to_csv("tmp1.csv", index=False)
-        df2.to_csv("tmp2.csv", index=False)
-        enterprise.TRADE_DIR = "."
-        enterprise.run_backtest_multi_tf("tmp1.csv", "tmp2.csv")
-        os.remove("tmp1.csv")
-        os.remove("tmp2.csv")
-        logs = [f for f in os.listdir(".") if f.startswith("trade_log_")]
+        df1.to_csv(enterprise.M1_PATH, index=False)
+        df2.to_csv(enterprise.M15_PATH, index=False)
+        enterprise.run_backtest_multi_tf(enterprise.M1_PATH, enterprise.M15_PATH)
+        os.remove(enterprise.M1_PATH)
+        os.remove(enterprise.M15_PATH)
+        logs = [f for f in os.listdir(enterprise.TRADE_DIR) if f.startswith("trade_log_")]
         for f in logs:
-            os.remove(f)
-        curves = [f for f in os.listdir(".") if f.startswith("equity_curve_")]
+            os.remove(os.path.join(enterprise.TRADE_DIR, f))
+        curves = [f for f in os.listdir(enterprise.TRADE_DIR) if f.startswith("equity_curve_")]
         for f in curves:
-            os.remove(f)
+            os.remove(os.path.join(enterprise.TRADE_DIR, f))
 
     def test_smart_entry_signal_goldai2025_style(self):
         df = pd.DataFrame({"ema_fast": [2, 1], "ema_slow": [1, 2], "rsi": [60, 40]})
@@ -209,14 +225,12 @@ class TestEnterprise(unittest.TestCase):
                 "close": np.linspace(1, 1.3, 30),
             }
         )
-        df.to_csv("tmp.csv", index=False)
-        enterprise.M1_PATH = "tmp.csv"
-        enterprise.TRADE_DIR = "."
+        df.to_csv(enterprise.M1_PATH, index=False)
         enterprise.run_backtest()
-        os.remove("tmp.csv")
-        for f in os.listdir("."):
+        os.remove(enterprise.M1_PATH)
+        for f in os.listdir(enterprise.TRADE_DIR):
             if f.startswith("trade_log_") or f.startswith("equity_curve_"):
-                os.remove(f)
+                os.remove(os.path.join(enterprise.TRADE_DIR, f))
 
     def test_run_backtest_multi_tf_goldai2025(self):
         df1 = pd.DataFrame(
@@ -237,15 +251,14 @@ class TestEnterprise(unittest.TestCase):
                 "close": [1, 1.1, 1.2],
             }
         )
-        df1.to_csv("tmp1.csv", index=False)
-        df2.to_csv("tmp2.csv", index=False)
-        enterprise.TRADE_DIR = "."
-        enterprise.run_backtest_multi_tf("tmp1.csv", "tmp2.csv")
-        os.remove("tmp1.csv")
-        os.remove("tmp2.csv")
-        for f in os.listdir("."):
+        df1.to_csv(enterprise.M1_PATH, index=False)
+        df2.to_csv(enterprise.M15_PATH, index=False)
+        enterprise.run_backtest_multi_tf(enterprise.M1_PATH, enterprise.M15_PATH)
+        os.remove(enterprise.M1_PATH)
+        os.remove(enterprise.M15_PATH)
+        for f in os.listdir(enterprise.TRADE_DIR):
             if f.startswith("trade_log_") or f.startswith("equity_curve_"):
-                os.remove(f)
+                os.remove(os.path.join(enterprise.TRADE_DIR, f))
 
     def test_label_elliott_wave(self):
         df = pd.DataFrame({"high": [1, 2, 3, 2, 1], "low": [0, 1, 2, 1, 0]})
@@ -320,7 +333,6 @@ class TestDynamicTP2Session(unittest.TestCase):
         self.assertEqual(df["entry_signal"].tolist(), ["buy", "buy", "buy", None])
 
     def test_execute_backtest_dynamic_tp2(self):
-        enterprise.TRADE_DIR = "."
         df = pd.DataFrame(
             {
                 "timestamp": pd.date_range("2020-01-01", periods=3, freq="min"),
@@ -339,13 +351,12 @@ class TestDynamicTP2Session(unittest.TestCase):
             }
         )
         trades = enterprise._execute_backtest(df)
-        for f in os.listdir("."):
+        for f in os.listdir(enterprise.TRADE_DIR):
             if f.startswith("trade_log_") or f.startswith("equity_curve_"):
-                os.remove(f)
+                os.remove(os.path.join(enterprise.TRADE_DIR, f))
         self.assertTrue(trades.empty)
 
     def test_atr_filter_skip_trade(self):
-        enterprise.TRADE_DIR = "."
         df = pd.DataFrame(
             {
                 "timestamp": pd.date_range("2020-01-01", periods=3, freq="min"),
@@ -364,9 +375,9 @@ class TestDynamicTP2Session(unittest.TestCase):
             }
         )
         trades = enterprise._execute_backtest(df)
-        for f in os.listdir("."):
+        for f in os.listdir(enterprise.TRADE_DIR):
             if f.startswith("trade_log_") or f.startswith("equity_curve_"):
-                os.remove(f)
+                os.remove(os.path.join(enterprise.TRADE_DIR, f))
         self.assertTrue(trades.empty)
 
     def test_execute_backtest_debug_strings(self):
@@ -730,7 +741,6 @@ class TestSpikeNewsGuard(unittest.TestCase):
         self.assertFalse(trades2.empty)
 
     def test_skip_entry_opposite_divergence(self):
-        enterprise.TRADE_DIR = "."
         df = pd.DataFrame(
             {
                 "timestamp": pd.date_range("2020-01-01", periods=1, freq="min"),
@@ -748,9 +758,9 @@ class TestSpikeNewsGuard(unittest.TestCase):
             }
         )
         trades = enterprise._execute_backtest(df)
-        for f in os.listdir("."):
+        for f in os.listdir(enterprise.TRADE_DIR):
             if f.startswith("trade_log_") or f.startswith("equity_curve_"):
-                os.remove(f)
+                os.remove(os.path.join(enterprise.TRADE_DIR, f))
         self.assertTrue(trades.empty)
 
     def test_walkforward_run_returns_list(self):
@@ -784,14 +794,12 @@ class TestSpikeNewsGuard(unittest.TestCase):
                 "close": np.linspace(1, 1.1, 10),
             }
         )
-        df.to_csv("tmp.csv", index=False)
-        enterprise.M1_PATH = "tmp.csv"
-        enterprise.TRADE_DIR = "."
+        df.to_csv(enterprise.M1_PATH, index=False)
         trades = enterprise.run_backtest_aggressive()
-        os.remove("tmp.csv")
-        for f in os.listdir("."):
+        os.remove(enterprise.M1_PATH)
+        for f in os.listdir(enterprise.TRADE_DIR):
             if f.startswith("trade_log_") or f.startswith("equity_curve_"):
-                os.remove(f)
+                os.remove(os.path.join(enterprise.TRADE_DIR, f))
         self.assertIsInstance(trades, pd.DataFrame)
 
     def test_config_defaults(self):
@@ -801,7 +809,6 @@ class TestSpikeNewsGuard(unittest.TestCase):
         assert enterprise.enable_micro_sl_exit
 
     def test_micro_sl_exit(self):
-        enterprise.TRADE_DIR = "."
         df = pd.DataFrame({
             "timestamp": pd.date_range("2020-01-01", periods=3, freq="min"),
             "open": [1.0, 0.8, 0.8],
@@ -816,9 +823,9 @@ class TestSpikeNewsGuard(unittest.TestCase):
             "entry_signal": ["buy", None, None],
         })
         trades = enterprise._execute_backtest(df)
-        for f in os.listdir("."):
+        for f in os.listdir(enterprise.TRADE_DIR):
             if f.startswith("trade_log_") or f.startswith("equity_curve_"):
-                os.remove(f)
+                os.remove(os.path.join(enterprise.TRADE_DIR, f))
         assert "MicroSL" in trades["exit"].values
 
     def test_calculate_auto_lot_basic(self):
@@ -839,7 +846,6 @@ class TestSpikeNewsGuard(unittest.TestCase):
         self.assertGreaterEqual(len(enterprise.param_grid()), 1)
 
     def test_early_force_close_opposite_momentum(self):
-        enterprise.TRADE_DIR = "."
         data = {
             "timestamp": pd.date_range("2020-01-01", periods=26, freq="min"),
             "open": [1.0] * 26,
@@ -856,9 +862,9 @@ class TestSpikeNewsGuard(unittest.TestCase):
         }
         df = pd.DataFrame(data)
         trades = enterprise._execute_backtest(df)
-        for f in os.listdir("."):
+        for f in os.listdir(enterprise.TRADE_DIR):
             if f.startswith("trade_log_") or f.startswith("equity_curve_"):
-                os.remove(f)
+                os.remove(os.path.join(enterprise.TRADE_DIR, f))
         self.assertIn("EarlyForceClose", trades["exit"].values)
 
     def test_run_backtest_custom_keys(self):
@@ -871,14 +877,13 @@ class TestSpikeNewsGuard(unittest.TestCase):
                 "close": np.linspace(1, 1.3, 30),
             }
         )
-        enterprise.TRADE_DIR = "."
         params = enterprise.param_grid()[0]
         res = enterprise.run_backtest_custom(df, params)
         self.assertIn("Final Equity", res)
         self.assertIn("Total Trades", res)
-        for f in os.listdir("."):
+        for f in os.listdir(enterprise.TRADE_DIR):
             if f.startswith("trade_log_") or f.startswith("equity_curve_"):
-                os.remove(f)
+                os.remove(os.path.join(enterprise.TRADE_DIR, f))
 
     def test_walk_forward_run_outputs(self):
         df = pd.DataFrame(
@@ -892,7 +897,6 @@ class TestSpikeNewsGuard(unittest.TestCase):
             }
         )
         df.to_csv("wfa_test.csv", index=False)
-        enterprise.TRADE_DIR = "."
         enterprise.walk_forward_run("wfa_test.csv", fold_days=1)
         self.assertTrue(os.path.exists("wfa_summary_results.csv"))
         os.remove("wfa_test.csv")
@@ -900,9 +904,9 @@ class TestSpikeNewsGuard(unittest.TestCase):
             os.remove("wfa_summary_results.csv")
         if os.path.exists("wfa_equity_plot.png"):
             os.remove("wfa_equity_plot.png")
-        for f in os.listdir("."):
+        for f in os.listdir(enterprise.TRADE_DIR):
             if f.startswith("shap_summary_fold_"):
-                os.remove(f)
+                os.remove(os.path.join(enterprise.TRADE_DIR, f))
 
     def test_main_menu_calls_correct_functions(self):
         with patch("builtins.input", side_effect=["1", "file.csv"]), patch.object(
