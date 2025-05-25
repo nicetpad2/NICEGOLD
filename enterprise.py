@@ -2176,13 +2176,17 @@ PARAM_GRID = {
 from copy import deepcopy
 
 
-def parameter_grid_search(df_fold, base_entry_fn):
-    """[Patch] Simple grid search for best parameters per fold."""
+def parameter_grid_search(df_fold, base_entry_fn, prev_best_config=None):
+    """[Patch] Grid search for best parameters per fold with optional warm start."""
     logger.info("[Patch] Grid search on fold (%d rows)", len(df_fold))
     best_result = None
     best_config: dict = {}
     keys, values = zip(*PARAM_GRID.items())
-    for combo in itertools.product(*values):
+    combos = list(itertools.product(*values))
+    if prev_best_config:
+        prev_combo = tuple(prev_best_config.get(k) for k in keys)
+        combos = [prev_combo] + [c for c in combos if c != prev_combo]
+    for combo in combos:
         config = dict(zip(keys, combo))
         df = df_fold.copy()
         df = base_entry_fn(df)  # TODO: inject config to entry_fn
@@ -2195,14 +2199,19 @@ def parameter_grid_search(df_fold, base_entry_fn):
 
 
 def run_wfv_rolling_with_optimization(df, window_size=100000, step_size=20000):
-    """[Patch] Rolling Walk-Forward Validation with optimization and strategy comparison."""
+    """[Patch] Rolling Walk-Forward Validation with optimization and auto strategy selection."""
     logger.info("[Patch] Rolling WFV with Optimization")
     all_results = []
+    prev_configs = {name: None for name in ENTRY_STRATEGIES}
+    strategy_votes = {name: 0 for name in ENTRY_STRATEGIES}
     for start in range(0, len(df) - window_size + 1, step_size):
         df_fold = df.iloc[start : start + window_size].reset_index(drop=True)
         fold_result = {"fold": f"{start}-{start + window_size}"}
+        best_profit = -9999
+        best_strategy = None
         for name, entry_fn in ENTRY_STRATEGIES.items():
-            result, config = parameter_grid_search(df_fold, entry_fn)
+            prev_config = prev_configs[name]
+            result, config = parameter_grid_search(df_fold, entry_fn, prev_config)
             pnl = result["pnl"].sum() if not result.empty else 0
             winrate = (result["pnl"] > 0).mean() if not result.empty else 0
             trades = len(result)
@@ -2214,8 +2223,17 @@ def run_wfv_rolling_with_optimization(df, window_size=100000, step_size=20000):
                     f"{name}_config": config,
                 }
             )
+            prev_configs[name] = config
+            if pnl > best_profit:
+                best_profit = pnl
+                best_strategy = name
+        fold_result["best_strategy"] = best_strategy
+        strategy_votes[best_strategy] += 1
         all_results.append(fold_result)
-    return all_results
+    logger.info("[Patch] Strategy Selection Votes: %s", strategy_votes)
+    best_overall = max(strategy_votes, key=strategy_votes.get)
+    logger.info("[Patch] ✅ BEST STRATEGY SELECTED: %s", best_overall)
+    return all_results, best_overall
 
 
 def plot_wfv_summary(results):
@@ -2239,6 +2257,14 @@ def plot_wfv_summary(results):
         plt.tight_layout()
         plt.show()
     return df
+
+
+def run_final_backtest_with_best_strategy(df, strategy_name):
+    """[Patch] Execute final backtest using the selected best strategy."""
+    logger.info("[Patch] Final Backtest using: %s", strategy_name)
+    entry_fn = ENTRY_STRATEGIES[strategy_name]
+    df = entry_fn(df)
+    return _execute_backtest(df)
 
 
 def calc_aggressive_lot(balance, risk_factor):
@@ -2295,8 +2321,9 @@ def main():
     df = label_elliott_wave(df)
     df = detect_divergence(df)
     df = calc_gain_zscore(df)
-    results = run_wfv_rolling_with_optimization(df)
+    results, best_strategy = run_wfv_rolling_with_optimization(df)
     plot_wfv_summary(results)
+    run_final_backtest_with_best_strategy(df, best_strategy)
 
 
 def walk_forward_run(trade_data_path, fold_days=30):
@@ -2314,5 +2341,7 @@ if __name__ == "__main__":
     df = label_elliott_wave(df)
     df = detect_divergence(df)
     df = calc_gain_zscore(df)
-    results = run_wfv_rolling_with_optimization(df)
+    results, best_strategy = run_wfv_rolling_with_optimization(df)
     plot_wfv_summary(results)
+    print("\n✅ BEST STRATEGY FOR FULL BACKTEST:", best_strategy)
+    final_trades = run_final_backtest_with_best_strategy(df, best_strategy)

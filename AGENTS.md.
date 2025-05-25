@@ -43,4 +43,4 @@
 
 ---
 อัพเดต AGENTS.md. และ changelog.md. ทุกครั้งหลังอัพเดตแพท ให้ทันปัจจุบัน
-- Sprint A: Rolling WFV with optimization and visual summary
+- Sprint A: Auto-learning WFV with strategy selection and final backtest
