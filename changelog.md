@@ -9,3 +9,8 @@
 ### Added
 - Auto-learning WFV that carries best params per strategy.
 - Automatic strategy selection and final backtest execution.
+
+## [v1.0.7] — 2025-05-25
+### Added
+- Full auto pipeline with WFV, best strategy selection, final backtest, and
+  export of final trades to CSV.

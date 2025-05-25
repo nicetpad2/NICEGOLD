@@ -44,3 +44,4 @@
 ---
 อัพเดต AGENTS.md. และ changelog.md. ทุกครั้งหลังอัพเดตแพท ให้ทันปัจจุบัน
 - Sprint A: Auto-learning WFV with strategy selection and final backtest
+- Sprint A Update: Full auto pipeline exports final trades to CSV
