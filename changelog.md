@@ -14,3 +14,8 @@
 ### Added
 - Full auto pipeline with WFV, best strategy selection, final backtest, and
   export of final trades to CSV.
+
+## [v1.0.8] — 2025-05-25
+### Fixed
+- Resolved ambiguous Series comparison in parameter_grid_search when selecting
+  best parameters.
